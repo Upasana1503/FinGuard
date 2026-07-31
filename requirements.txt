@@ -1,0 +1,12 @@
+# Core (needed for v1, no GPU required)
+# --- none needed for regex-only mode ---
+
+# Enable classifier layer (v1 optional, v2+ required)
+transformers>=4.40.0
+torch>=2.2.0          # on M1: installs with MPS support automatically
+accelerate>=0.30.0
+
+# For later stages (activation extraction, probing)
+scikit-learn>=1.4.0   # logistic regression probe
+numpy>=1.26.0
+datasets>=2.19.0       # for pulling HarmBench/AdvBench-style benchmark data

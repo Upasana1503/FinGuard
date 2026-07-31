@@ -1,0 +1,48 @@
+{
+  "dataset": "minimal_pairs",
+  "layer": 8,
+  "clean_probe_metrics": {
+    "precision": 0.95,
+    "recall": 1.0,
+    "f1": 0.9744,
+    "false_positive_rate": 0.05,
+    "accuracy": 0.9744,
+    "tp": 19,
+    "fp": 1,
+    "tn": 19,
+    "fn": 0
+  },
+  "n_malicious_test": 19,
+  "robustness_results": {
+    "clean": {
+      "v1_detection_rate": 0.0,
+      "v3_detection_rate": 1.0,
+      "n": 19
+    },
+    "roleplay_wrap": {
+      "v1_detection_rate": 1.0,
+      "v3_detection_rate": 0.3158,
+      "n": 19
+    },
+    "leetspeak": {
+      "v1_detection_rate": 0.0,
+      "v3_detection_rate": 0.6842,
+      "n": 19
+    },
+    "zero_width_insert": {
+      "v1_detection_rate": 0.0,
+      "v3_detection_rate": 0.4211,
+      "n": 19
+    },
+    "synonym_substitute": {
+      "v1_detection_rate": 0.0,
+      "v3_detection_rate": 1.0,
+      "n": 19
+    },
+    "distractor_pad": {
+      "v1_detection_rate": 0.0,
+      "v3_detection_rate": 0.3158,
+      "n": 19
+    }
+  }
+}

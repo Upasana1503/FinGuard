@@ -1,0 +1,164 @@
+{
+  "layer": 8,
+  "n_categories": 8,
+  "n_train_pairs": 48,
+  "n_test_pairs": 16,
+  "train_pairs_per_category": {
+    "unauthorized_fund_transfer": 6,
+    "insider_trading_facilitation": 6,
+    "structuring_money_laundering": 6,
+    "account_takeover_finance": 6,
+    "credential_bypass_intrusion": 6,
+    "malware_development": 6,
+    "data_exfiltration": 6,
+    "social_engineering_phishing": 6
+  },
+  "category_attribution_accuracy": 0.125,
+  "own_direction_pair_discrimination": 1.0,
+  "per_pair_results": [
+    {
+      "pair_id": "fin_transfer_04",
+      "true_category": "unauthorized_fund_transfer",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.985,
+      "malicious_sim_own_direction": 0.9898,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "fin_transfer_05",
+      "true_category": "unauthorized_fund_transfer",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.9869,
+      "malicious_sim_own_direction": 0.9889,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "fin_insider_04",
+      "true_category": "insider_trading_facilitation",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": -0.9919,
+      "malicious_sim_own_direction": -0.989,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "fin_insider_08",
+      "true_category": "insider_trading_facilitation",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": -0.9903,
+      "malicious_sim_own_direction": -0.9887,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "fin_structuring_04",
+      "true_category": "structuring_money_laundering",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": -0.8149,
+      "malicious_sim_own_direction": -0.8132,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "fin_structuring_06",
+      "true_category": "structuring_money_laundering",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": -0.8186,
+      "malicious_sim_own_direction": -0.8103,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "fin_takeover_03",
+      "true_category": "account_takeover_finance",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.9511,
+      "malicious_sim_own_direction": 0.9593,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "fin_takeover_02",
+      "true_category": "account_takeover_finance",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.9542,
+      "malicious_sim_own_direction": 0.9597,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "cyb_credbypass_06",
+      "true_category": "credential_bypass_intrusion",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.9934,
+      "malicious_sim_own_direction": 0.9946,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "cyb_credbypass_03",
+      "true_category": "credential_bypass_intrusion",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.9928,
+      "malicious_sim_own_direction": 0.995,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "cyb_malware_06",
+      "true_category": "malware_development",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": true,
+      "benign_sim_own_direction": 0.9951,
+      "malicious_sim_own_direction": 0.9971,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "cyb_malware_04",
+      "true_category": "malware_development",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": true,
+      "benign_sim_own_direction": 0.9952,
+      "malicious_sim_own_direction": 0.9976,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "cyb_exfil_04",
+      "true_category": "data_exfiltration",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.9895,
+      "malicious_sim_own_direction": 0.992,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "cyb_exfil_02",
+      "true_category": "data_exfiltration",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.9895,
+      "malicious_sim_own_direction": 0.9912,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "cyb_phishing_06",
+      "true_category": "social_engineering_phishing",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.9863,
+      "malicious_sim_own_direction": 0.989,
+      "own_direction_discriminates": true
+    },
+    {
+      "pair_id": "cyb_phishing_08",
+      "true_category": "social_engineering_phishing",
+      "top_attributed_category": "malware_development",
+      "attribution_correct": false,
+      "benign_sim_own_direction": 0.9856,
+      "malicious_sim_own_direction": 0.9903,
+      "own_direction_discriminates": true
+    }
+  ]
+}
