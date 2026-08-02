@@ -57,7 +57,7 @@ print("=" * 70)
 print("Training general-scope detector on GPU ...")
 print("=" * 70)
 
-guardrail = ActivationGuardrail(scope="general")
+guardrail = ActivationGuardrail()
 train_metadata = guardrail.train(batch_size=32)
 print("\nTraining metadata:")
 print(json.dumps(train_metadata, indent=2))

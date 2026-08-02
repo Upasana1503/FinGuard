@@ -1,5 +1,5 @@
 """
-FinGuard API — activation-based guardrail for finance/cybersecurity LLM agents.
+FinGuard API — activation-based guardrail for LLM agents (general-purpose).
 
 Endpoints:
     POST /v1/signup    -- create an account, get an API key (shown once)
@@ -64,18 +64,9 @@ class CheckRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
 
 
-class PolicyAttribution(BaseModel):
-    category: str
-    policy_label: str
-    policy_reference: str
-    activation_cosine_similarity: float
-
-
 class CheckResponse(BaseModel):
     flagged: bool
     flag_confidence: float
-    policy_attribution: list[PolicyAttribution]
-    disclaimer: str
     latency_ms: float
 
 

@@ -142,7 +142,7 @@ if __name__ == "__main__":
     import gc
 
     print("\nFreeing ai_guardrail's model from memory before loading Granite Guardian ...")
-    del guardrail.model, guardrail.clf, guardrail.directions
+    del guardrail.model, guardrail.clf
     gc.collect()
     try:
         import torch

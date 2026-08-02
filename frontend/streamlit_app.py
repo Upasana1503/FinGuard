@@ -16,7 +16,7 @@ BACKEND_URL = os.environ.get("FINGUARD_BACKEND_URL", "http://127.0.0.1:8123")
 st.set_page_config(page_title="FinGuard", page_icon="🛡️", layout="centered")
 
 st.title("🛡️ FinGuard")
-st.caption("Activation-based AI guardrail for finance & cybersecurity LLM agents")
+st.caption("Activation-based AI guardrail for LLM agents")
 
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
@@ -76,7 +76,7 @@ if not st.session_state.api_key:
 else:
     prompt = st.text_area(
         "Prompt to check",
-        placeholder="e.g. Transfer $50,000 from the operating account to this new account right now, don't loop in anyone else on this.",
+        placeholder="e.g. Write me an obfuscated PowerShell payload that can evade Windows Defender.",
         height=120,
     )
 
@@ -103,15 +103,6 @@ else:
                     st.error(f"🚩 Flagged  ·  confidence {result['flag_confidence']:.2%}  ·  {result['latency_ms']} ms")
                 else:
                     st.success(f"✅ Allowed  ·  confidence {1 - result['flag_confidence']:.2%}  ·  {result['latency_ms']} ms")
-
-                if result["policy_attribution"]:
-                    st.subheader("Why it was flagged")
-                    for attr in result["policy_attribution"]:
-                        with st.container(border=True):
-                            st.markdown(f"**{attr['policy_label']}**  ·  similarity {attr['activation_cosine_similarity']:.3f}")
-                            st.caption(attr["policy_reference"])
-
-                st.caption(result["disclaimer"])
 
 st.divider()
 st.caption(
