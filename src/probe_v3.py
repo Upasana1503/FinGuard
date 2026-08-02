@@ -179,6 +179,8 @@ def build_activation_dataset(examples, model, tokenizer, device, layer, batch_si
 def train_and_eval_probe(X_train, y_train, X_test, y_test):
     from sklearn.linear_model import LogisticRegressionCV
     from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
 
     # LogisticRegressionCV automatically searches for the regularization
     # strength (C) via internal cross-validation on the TRAINING data only.
@@ -198,8 +200,21 @@ def train_and_eval_probe(X_train, y_train, X_test, y_test):
                 f"extract_activation/extract_activations_batch in this file). Not a data problem."
             )
 
-    clf = LogisticRegressionCV(
-        max_iter=2000, class_weight="balanced", cv=5, Cs=10,
+    # StandardScaler in front: raw activations aren't naturally on a
+    # consistent scale across dimensions (some residual-stream dims run
+    # much larger than others -- the same outlier-magnitude phenomenon
+    # behind the float16 overflow bug), which slows LBFGS convergence and
+    # distorts L2 regularization (it penalizes large-scale dims more than
+    # small-scale ones for no principled reason). Wrapped in a Pipeline
+    # rather than scaling X_train by hand so the SAME fitted scaler
+    # automatically applies at inference time too -- every caller
+    # (ai_guardrail.py, the backend, policy_directions.py) just calls
+    # clf.predict()/.predict_proba() and neither knows nor needs to know
+    # scaling happens inside; joblib saves/loads the whole pipeline as one
+    # unit, so nothing downstream had to change.
+    clf = make_pipeline(
+        StandardScaler(),
+        LogisticRegressionCV(max_iter=2000, class_weight="balanced", cv=5, Cs=10),
     )
     clf.fit(X_train, y_train)
     preds = clf.predict(X_test)
