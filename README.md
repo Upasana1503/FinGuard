@@ -4,6 +4,10 @@
 
 ---
 
+> **Scope note (2026-08-02):** the project pivoted to **finance-only** scope for the shipped product (FinGuard). FinSec-MinPairs was trimmed from 8 categories (64 pairs / 128 ex., finance+cybersecurity) down to 4 finance-only categories (32 pairs / 64 ex.) — `unauthorized_fund_transfer`, `insider_trading_facilitation`, `structuring_money_laundering`, `account_takeover_finance`. The detector and policy directions were retrained on the trimmed set. **Everything below this note that references "8 categories" or "64 pairs / 128 examples" describes the original run** — kept as an honest historical record, not silently rewritten. Current numbers are in the FinGuard repo's own README/commit history going forward.
+
+---
+
 ## 1. Who I am / context
 
 Undergrad preparing for placements, targeting **AIML SDE and AIML Research roles**, aiming this project at the **finance and cybersecurity domains**. Compute: MacBook M1 (local dev) + Kaggle free-tier GPU (final runs). Comfortable with math/ML fundamentals but learning transformer internals and research methodology as I go. No dataset-building experience going in — LLM-assisted dataset generation + existing benchmarks are the practical path.

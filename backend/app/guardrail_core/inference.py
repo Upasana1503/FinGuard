@@ -43,26 +43,6 @@ POLICY_REFERENCE = {
         "reference": "GLBA Safeguards Rule (customer authentication controls); "
                       "interagency guidance on identity verification for account access.",
     },
-    "credential_bypass_intrusion": {
-        "label": "Credential Bypass / Unauthorized Access",
-        "reference": "NIST SP 800-53 AC-7 / IA-2 (authentication enforcement); "
-                      "Computer Fraud and Abuse Act (unauthorized access), absent documented authorization.",
-    },
-    "malware_development": {
-        "label": "Malicious Software Development",
-        "reference": "NIST SP 800-53 SI-3 (malicious code protection); CISA guidance on malware "
-                      "development/distribution absent an authorized research or defensive-testing scope.",
-    },
-    "data_exfiltration": {
-        "label": "Data Exfiltration",
-        "reference": "GLBA Safeguards Rule / NIST SP 800-53 SC-7 (boundary protection); "
-                      "applicable breach-notification statutes if customer data is involved.",
-    },
-    "social_engineering_phishing": {
-        "label": "Social Engineering / Phishing",
-        "reference": "FTC guidance on deceptive practices; CISA phishing-prevention guidance; "
-                      "internal security-awareness policy on impersonation.",
-    },
 }
 
 EVIDENCE_DISCLAIMER = (
