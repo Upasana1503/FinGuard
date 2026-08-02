@@ -46,6 +46,35 @@ def load_deepset(max_samples: int = None):
     return examples
 
 
+def load_financial_fraud_text(max_samples: int = None):
+    """
+    lakpriya/financial_fraud_textual_dataset -- 3999 real emails, roughly
+    balanced: 2000 fraud/scam (classic advance-fee "bank manager needs help
+    moving $5M" style letters), 1999 legitimate business correspondence.
+    Independently collected, not authored by this project.
+
+    IMPORTANT FRAMING CAVEAT: this tests something ADJACENT to the deployed
+    task, not identical to it. FinSec-MinPairs tests "is a USER'S REQUEST TO
+    AN AGENT malicious" (e.g. "transfer funds without telling anyone").
+    This dataset instead tests "is this EMAIL BODY a financial scam" --
+    different structure, same broad domain (financial-crime-flavored
+    language vs ordinary financial business language). Report results with
+    that distinction stated, not as if it were the same benchmark task.
+
+    No dataset card/citation on the HF repo -- treat as "a real-world fraud
+    email corpus found on HF," not a peer-reviewed named benchmark.
+
+    label: 1 = fraud/scam email, 0 = legitimate.
+    """
+    from datasets import load_dataset
+
+    ds = load_dataset("lakpriya/financial_fraud_textual_dataset")["train"]
+    examples = [(row["Text"], int(row["Class"])) for row in ds]
+    if max_samples:
+        examples = examples[:max_samples]
+    return examples
+
+
 def load_xstest(max_samples: int = None):
     """
     XSTest (Röttger et al.) -- the canonical over-refusal / pseudo-harm
@@ -130,6 +159,7 @@ DATASET_LOADERS = {
     "advbench_mix": load_advbench_mix,
     "minimal_pairs": load_minimal_pairs_flat,
     "xstest": load_xstest,
+    "financial_fraud_text": load_financial_fraud_text,
 }
 
 
@@ -215,7 +245,8 @@ def print_report(name: str, metrics: dict):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", choices=["deepset", "advbench_mix", "minimal_pairs", "xstest", "both"],
+    parser.add_argument("--dataset", choices=["deepset", "advbench_mix", "minimal_pairs", "xstest",
+                                               "financial_fraud_text", "both"],
                          default="deepset")
     parser.add_argument("--use_classifier", action="store_true",
                          help="Also run the toxicity classifier layer (slower, needs transformers+torch)")
@@ -228,7 +259,7 @@ if __name__ == "__main__":
     targets = ["deepset", "advbench_mix", "minimal_pairs"] if args.dataset == "both" else [args.dataset]
     all_results = {}
 
-    NEEDS_MAX_SAMPLES = {"deepset", "minimal_pairs", "xstest"}
+    NEEDS_MAX_SAMPLES = {"deepset", "minimal_pairs", "xstest", "financial_fraud_text"}
 
     for name in targets:
         print(f"\nLoading dataset: {name} ...")

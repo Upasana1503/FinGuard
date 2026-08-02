@@ -73,6 +73,24 @@ def load_model(model_name: str):
     return model, tokenizer, device
 
 
+def _base_transformer(model):
+    """
+    Returns the bare transformer stack (no LM head) if the wrapper exposes
+    one, e.g. Qwen2ForCausalLM.model -> Qwen2Model.
+
+    Why this matters: calling the full CausalLM wrapper computes lm_head
+    logits over the ENTIRE vocabulary (~150k tokens for Qwen2.5) for every
+    token position in the batch, even though we only ever read
+    hidden_states and never look at the logits. For batch=32 x seq_len=256
+    x vocab=150000 in float16, that's a ~2.3GB tensor we throw away --
+    which is exactly what blew out MPS memory on a long-text batch (see
+    the financial-fraud-email eval: 3999 multi-paragraph emails). Skipping
+    the LM head entirely removes that allocation and is strictly faster,
+    with identical hidden_states math.
+    """
+    return model.model if hasattr(model, "model") else model
+
+
 def extract_activation(text: str, model, tokenizer, device: str, layer: int) -> np.ndarray:
     """
     Run one forward pass, pull the hidden state at `layer`, mean-pool
@@ -87,7 +105,7 @@ def extract_activation(text: str, model, tokenizer, device: str, layer: int) -> 
 
     inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=256).to(device)
     with torch.no_grad():
-        outputs = model(**inputs, output_hidden_states=True)
+        outputs = _base_transformer(model)(**inputs, output_hidden_states=True)
 
     hidden = outputs.hidden_states[layer]        # (batch=1, seq_len, hidden_dim)
     pooled = hidden.mean(dim=1).squeeze(0)        # mean-pool over tokens -> (hidden_dim,)
@@ -119,7 +137,7 @@ def extract_activations_batch(texts, model, tokenizer, device, layer, batch_size
             batch, return_tensors="pt", truncation=True, max_length=256, padding=True
         ).to(device)
         with torch.no_grad():
-            outputs = model(**inputs, output_hidden_states=True)
+            outputs = _base_transformer(model)(**inputs, output_hidden_states=True)
 
         hidden = outputs.hidden_states[layer]                      # (batch, seq_len, hidden_dim)
         mask = inputs["attention_mask"].unsqueeze(-1).to(hidden.dtype)  # (batch, seq_len, 1)

@@ -103,8 +103,14 @@ class GuardrailEngine:
         import torch
 
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=256).to(self.device)
+        # Call the bare transformer (skip the LM head) -- we only read
+        # hidden_states, never logits, and computing lm_head over the full
+        # ~150k vocab for every request is pure wasted memory/compute (see
+        # src/probe_v3.py's _base_transformer for the full explanation --
+        # this is what caused a real OOM on long-text batches).
+        base = self.model.model if hasattr(self.model, "model") else self.model
         with torch.no_grad():
-            outputs = self.model(**inputs, output_hidden_states=True)
+            outputs = base(**inputs, output_hidden_states=True)
         hidden = outputs.hidden_states[self.layer]
         pooled = hidden.mean(dim=1).squeeze(0)
         return pooled.float().cpu().numpy()
