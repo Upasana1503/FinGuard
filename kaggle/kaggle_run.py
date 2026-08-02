@@ -8,26 +8,28 @@ the notebook, turning on GPU + internet, etc.) if you haven't done that yet.
 What this does, in order:
   1. Clones the FinGuard repo (or pulls latest if already cloned).
   2. Installs anything missing beyond Kaggle's preinstalled packages.
-  3. Trains the general-purpose detector on deepset + AdvBench's
-     malicious-only short-form prompts + a 6000-example WildGuardMix
-     subset. Round 2 fix: round 1 (deepset+WildGuardMix alone) pushed
-     WildGuardTest to F1 0.77 but left XSTest/OR-Bench barely moved
-     (0.29/0.46) -- diagnosed as a length/style gap, not a topic gap:
-     WildGuardMix examples average ~80 words, XSTest/OR-Bench average
-     ~9-18 words, so the classifier never learned what short-form harmful
-     text looks like. AdvBench's malicious prompts are short (~12 words);
-     pulled WITHOUT their usual OpenOrca benign pairing (~142 words --
-     even longer than WildGuardMix) since deepset's benign side is
-     already short (~10.6 words) and pairing short-malicious with
-     long-benign would just flip the confound the other way.
+  3. Trains the general-purpose detector on deepset + the FULL AdvBench
+     malicious set (520) + a 2500-example WildGuardMix subset. Round 4
+     fix -- round 3 (200 AdvBench + 6000 WildGuardMix) barely moved
+     XSTest/OR-Bench (F1 0.33/0.46, near-flat vs round 2) because 200
+     examples was under 3% of a 6746-example training set, nowhere near
+     enough weight to shift what got learned from the length/style
+     mismatch diagnosed in round 2 (WildGuardMix trains on ~80-word
+     elaborate prompts; XSTest/OR-Bench are ~9-18 words). This round:
+     full AdvBench (520) + deepset (546) = 1066 short-form examples
+     against only 2500 WildGuardMix -- ~30% of the mix instead of ~3%.
+     Tradeoff to watch: less WildGuardMix volume could soften
+     WildGuardTest's good transfer (F1 0.77 in round 3) -- check that
+     number too, not just XSTest/OR-Bench, before calling this a win.
   4. Evaluates it zero-shot (no retraining) on the three standard
      benchmarks: XSTest, OR-Bench, WildGuardTest.
   5. Saves everything (trained artifacts + a results JSON + a printed
      summary table) to /kaggle/working/ so you can download it and bring
      the numbers back.
 
-Runtime estimate on a T4: training set is slightly larger than round 2
-(~6750 vs ~6550 examples) -- expect roughly the same ~60-90 min total.
+Runtime estimate on a T4: training set is SMALLER this round (~3566 vs
+~6746 examples) -- should be noticeably faster, expect ~20-30 min for
+training instead of ~30-45.
 """
 
 import json
@@ -67,7 +69,7 @@ print("Training general-purpose detector on GPU (deepset + WildGuardMix subset) 
 print("=" * 70)
 
 guardrail = ActivationGuardrail()
-train_metadata = guardrail.train(batch_size=32, wildguardmix_samples=6000)
+train_metadata = guardrail.train(batch_size=32, wildguardmix_samples=2500)
 print("\nTraining metadata:")
 print(json.dumps(train_metadata, indent=2))
 
