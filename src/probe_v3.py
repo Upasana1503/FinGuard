@@ -55,6 +55,14 @@ def load_model(model_name: str):
     print(f"Loading {model_name} on device: {device}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    # Right-padding is required for a causal LM: with attention_mask passed
+    # through, real tokens keep the exact same positions/attention pattern
+    # as the unpadded case. Left-padding would shift real tokens to later
+    # positions and risk subtly different hidden states -- don't chance it.
+    tokenizer.padding_side = "right"
+
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=torch.float16 if device != "cpu" else torch.float32,
@@ -86,16 +94,54 @@ def extract_activation(text: str, model, tokenizer, device: str, layer: int) -> 
     return pooled.float().cpu().numpy()
 
 
-def build_activation_dataset(examples, model, tokenizer, device, layer):
+def extract_activations_batch(texts, model, tokenizer, device, layer, batch_size=16, verbose=True):
+    """
+    Batched version of extract_activation -- one forward pass per BATCH
+    instead of per text. Same math, much faster on GPU (Kaggle T4 etc.):
+    a 1.5B model's activations for a batch of 16-32 short prompts cost
+    almost nothing extra over batch=1, since the model weights (not the
+    activations) dominate memory.
+
+    Correctness note: naive `hidden.mean(dim=1)` on a padded batch would
+    average in the padding positions' hidden states, silently corrupting
+    every vector's pooling. This masks padding out BEFORE averaging, using
+    attention_mask, so each text's vector only pools over its own real
+    tokens -- identical math to calling extract_activation() one at a time,
+    just batched.
+    """
+    import torch
+
+    all_vecs = []
+    n = len(texts)
+    for start in range(0, n, batch_size):
+        batch = texts[start:start + batch_size]
+        inputs = tokenizer(
+            batch, return_tensors="pt", truncation=True, max_length=256, padding=True
+        ).to(device)
+        with torch.no_grad():
+            outputs = model(**inputs, output_hidden_states=True)
+
+        hidden = outputs.hidden_states[layer]                      # (batch, seq_len, hidden_dim)
+        mask = inputs["attention_mask"].unsqueeze(-1).to(hidden.dtype)  # (batch, seq_len, 1)
+        summed = (hidden * mask).sum(dim=1)                         # (batch, hidden_dim)
+        counts = mask.sum(dim=1).clamp(min=1e-9)                    # (batch, 1) -- real-token count per text
+        pooled = summed / counts
+
+        all_vecs.append(pooled.float().cpu().numpy())
+
+        done = min(start + batch_size, n)
+        if verbose and (done % 50 < batch_size or done == n):
+            print(f"  extracted {done}/{n}")
+
+    return np.concatenate(all_vecs, axis=0)
+
+
+def build_activation_dataset(examples, model, tokenizer, device, layer, batch_size=16):
     """examples: list of (text, label). Returns X (n, hidden_dim), y (n,)."""
-    X, y = [], []
-    for i, (text, label) in enumerate(examples):
-        vec = extract_activation(text, model, tokenizer, device, layer)
-        X.append(vec)
-        y.append(label)
-        if (i + 1) % 50 == 0:
-            print(f"  extracted {i + 1}/{len(examples)}")
-    return np.array(X), np.array(y)
+    texts = [t for t, _ in examples]
+    y = np.array([label for _, label in examples])
+    X = extract_activations_batch(texts, model, tokenizer, device, layer, batch_size=batch_size)
+    return X, y
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +196,11 @@ if __name__ == "__main__":
     parser.add_argument("--test_size", type=float, default=0.3)
     parser.add_argument("--max_samples", type=int, default=None,
                          help="Cap dataset size for faster local runs (e.g. 150)")
+    parser.add_argument("--batch_size", type=int, default=16,
+                         help="Activation-extraction batch size. Bigger = faster on GPU "
+                              "(Kaggle T4 etc.), doesn't meaningfully increase memory since "
+                              "model weights dominate, not activations. Lower this if you "
+                              "genuinely hit OOM on a small/CPU-only box.")
     args = parser.parse_args()
 
     from sklearn.model_selection import train_test_split
@@ -178,8 +229,8 @@ if __name__ == "__main__":
     for layer in layers_to_try:
         print(f"\n--- Layer {layer} ---")
         start = time.time()
-        X_train, y_train = build_activation_dataset(train_ex, model, tokenizer, device, layer)
-        X_test, y_test = build_activation_dataset(test_ex, model, tokenizer, device, layer)
+        X_train, y_train = build_activation_dataset(train_ex, model, tokenizer, device, layer, batch_size=args.batch_size)
+        X_test, y_test = build_activation_dataset(test_ex, model, tokenizer, device, layer, batch_size=args.batch_size)
         metrics, clf = train_and_eval_probe(X_train, y_train, X_test, y_test)
         metrics["extraction_time_sec"] = round(time.time() - start, 2)
         results[f"layer_{layer}"] = metrics

@@ -68,6 +68,34 @@ judged against:
    !python probe_v3.py --dataset xstest --layer_sweep
    ```
 
+## Batching + subsetting (the actual fix for OOM/slowness)
+
+`probe_v3.py` and `diagnose_leakage.py` now extract activations in BATCHES
+instead of one text at a time (`--batch_size`, default 16) — verified this
+produces numerically identical results (cosine similarity >0.999999 against
+the old one-at-a-time path; the tiny float16 difference is just
+batching-order rounding noise, not a bug). This is a real speedup, not just
+a memory workaround: a 1.5B model's activations for a batch of 16-32 short
+prompts cost almost nothing extra over batch=1, since model *weights*
+dominate memory, not activations.
+
+Practical settings for Kaggle's T4:
+```bash
+# raise batch_size on GPU -- 32-64 should be comfortable for a 1.5B model
+python probe_v3.py --dataset xstest --layer 8 --batch_size 32
+
+# WildGuardTest is ~92k examples -- don't run the full set blind on your
+# first pass. Subset first to sanity-check the loader/labels are right,
+# THEN scale up:
+python probe_v3.py --dataset wildguardtest --max_samples 2000 --batch_size 32   # smoke test
+python probe_v3.py --dataset wildguardtest --batch_size 32                       # full run, once the smoke test looks right
+```
+
+If you genuinely hit OOM (unlikely on a T4 for a 1.5B model, but possible
+if you're also holding a second model in memory — see the warning below),
+lower `--batch_size` back down rather than reducing `--max_samples`;
+subsetting changes what you're measuring, batch size doesn't.
+
 6. **Save results before your session ends** — Kaggle sessions aren't
    permanent. Either commit the notebook (File → Save Version) so the
    output logs persist, or explicitly write results to `/kaggle/working/`

@@ -56,7 +56,7 @@ def check_near_duplicates(examples, threshold=0.9):
     return rate
 
 
-def run_control_test(examples, model, tokenizer, device, layer, test_size=0.3):
+def run_control_test(examples, model, tokenizer, device, layer, test_size=0.3, batch_size=16):
     from sklearn.model_selection import train_test_split
 
     real_labels = [l for _, l in examples]
@@ -73,8 +73,8 @@ def run_control_test(examples, model, tokenizer, device, layer, test_size=0.3):
 
     print("\n[Control test] Training probe on RANDOMIZED labels "
           "(true signal removed -- should score near chance, ~0.5 accuracy)")
-    X_train, y_train = build_activation_dataset(train_ex, model, tokenizer, device, layer)
-    X_test, y_test = build_activation_dataset(test_ex, model, tokenizer, device, layer)
+    X_train, y_train = build_activation_dataset(train_ex, model, tokenizer, device, layer, batch_size=batch_size)
+    X_test, y_test = build_activation_dataset(test_ex, model, tokenizer, device, layer, batch_size=batch_size)
     metrics, _ = train_and_eval_probe(X_train, y_train, X_test, y_test)
 
     print(f"\nControl (random-label) result: {metrics}")
@@ -95,6 +95,8 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--layer", type=int, default=8)
     parser.add_argument("--max_samples", type=int, default=None)
+    parser.add_argument("--batch_size", type=int, default=16,
+                         help="Activation-extraction batch size (see probe_v3.py for why bigger is safe on GPU)")
     args = parser.parse_args()
 
     print(f"Loading dataset: {args.dataset} ...")
@@ -105,4 +107,4 @@ if __name__ == "__main__":
     check_near_duplicates(examples)
 
     model, tokenizer, device = load_model(args.model)
-    run_control_test(examples, model, tokenizer, device, args.layer)
+    run_control_test(examples, model, tokenizer, device, args.layer, batch_size=args.batch_size)
