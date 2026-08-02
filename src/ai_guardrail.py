@@ -71,24 +71,39 @@ class ActivationGuardrail:
         """
         wildguardmix_samples: how many of WildGuardMix's 86,759 real
         training examples to pull in (shuffled subset, see
-        benchmark_v2.load_wildguardmix_train). This is the fix for the
-        generalization gap found in the first general-purpose Kaggle run
-        (deepset+advbench_mix alone = 946 examples from 2 narrow sources;
-        zero-shot F1 on WildGuardTest/OR-Bench/XSTest was 0.60/0.30/0.22).
-        Set to None to use the full 86,759 (much longer training, only
-        worth it if 6000 isn't enough -- try the default first).
+        benchmark_v2.load_wildguardmix_train). Fixed the generalization gap
+        found in the first general-purpose Kaggle run (deepset+advbench_mix
+        alone = 946 examples from 2 narrow sources; zero-shot F1 on
+        WildGuardTest/OR-Bench/XSTest was 0.60/0.30/0.22) -- WildGuardTest
+        specifically jumped to 0.77.
+
+        But XSTest/OR-Bench barely moved (F1 0.29/0.46), and the cause was
+        diagnosed, not guessed: WildGuardMix's examples average ~80 words
+        (elaborate, jailbreak-style prompts); XSTest/OR-Bench average ~9-18
+        words (terse, direct). The classifier learned what "harmful" looks
+        like in long-form text and doesn't recognize it in a one-liner.
+        deepset's benign side is already short (~10.6 words, matches
+        XSTest's ~8.4) so that half is covered -- what's missing is SHORT
+        malicious examples. AdvBench's malicious prompts are short (~12
+        words) but its usual benign pairing (OpenOrca) is very long (~142
+        words, longer than WildGuardMix) -- pulling only AdvBench's
+        malicious half avoids reintroducing a length/label confound in the
+        other direction (short=malicious would become a spurious shortcut
+        if long-only benign examples came along with it).
         """
         from sklearn.model_selection import train_test_split
         from probe_v3 import build_activation_dataset, train_and_eval_probe
-        from benchmark_v2 import load_deepset, load_wildguardmix_train
+        from benchmark_v2 import load_deepset, load_advbench_mix, load_wildguardmix_train
 
-        print("Loading training data: deepset + WildGuardMix (real, 15-category, "
+        print("Loading training data: deepset + AdvBench (malicious-only, short-form) "
+              "+ WildGuardMix (real, 15-category, "
               f"{'full 86,759' if wildguardmix_samples is None else f'{wildguardmix_samples}-example subset'}) ...")
         deepset_examples = load_deepset(None)
+        advbench_malicious_only = [(t, l) for t, l in load_advbench_mix() if l == 1]
         wildguard_examples = load_wildguardmix_train(wildguardmix_samples)
-        combined = deepset_examples + wildguard_examples
-        print(f"  deepset: {len(deepset_examples)}  wildguardmix_train: {len(wildguard_examples)}  "
-              f"combined: {len(combined)}")
+        combined = deepset_examples + advbench_malicious_only + wildguard_examples
+        print(f"  deepset: {len(deepset_examples)}  advbench(malicious-only): {len(advbench_malicious_only)}  "
+              f"wildguardmix_train: {len(wildguard_examples)}  combined: {len(combined)}")
 
         train_ex, test_ex = train_test_split(
             combined, test_size=test_size, random_state=seed,

@@ -8,21 +8,26 @@ the notebook, turning on GPU + internet, etc.) if you haven't done that yet.
 What this does, in order:
   1. Clones the FinGuard repo (or pulls latest if already cloned).
   2. Installs anything missing beyond Kaggle's preinstalled packages.
-  3. Trains the general-purpose detector on deepset + a 6000-example
-     WildGuardMix subset (real training data, 15 harm categories --
-     replaced an earlier deepset+advbench_mix mix after THAT version's
-     zero-shot generalization came back weak: WildGuardTest/OR-Bench/
-     XSTest F1 of 0.60/0.30/0.22, trained on just 946 narrow examples).
+  3. Trains the general-purpose detector on deepset + AdvBench's
+     malicious-only short-form prompts + a 6000-example WildGuardMix
+     subset. Round 2 fix: round 1 (deepset+WildGuardMix alone) pushed
+     WildGuardTest to F1 0.77 but left XSTest/OR-Bench barely moved
+     (0.29/0.46) -- diagnosed as a length/style gap, not a topic gap:
+     WildGuardMix examples average ~80 words, XSTest/OR-Bench average
+     ~9-18 words, so the classifier never learned what short-form harmful
+     text looks like. AdvBench's malicious prompts are short (~12 words);
+     pulled WITHOUT their usual OpenOrca benign pairing (~142 words --
+     even longer than WildGuardMix) since deepset's benign side is
+     already short (~10.6 words) and pairing short-malicious with
+     long-benign would just flip the confound the other way.
   4. Evaluates it zero-shot (no retraining) on the three standard
      benchmarks: XSTest, OR-Bench, WildGuardTest.
   5. Saves everything (trained artifacts + a results JSON + a printed
      summary table) to /kaggle/working/ so you can download it and bring
      the numbers back.
 
-Runtime estimate on a T4: training now takes longer than the first pass
-(~6500 examples vs ~950 before) -- expect ~30-45 min for training, plus
-the same few-minutes-each for the three benchmark evals. Budget ~60-90
-min total this time.
+Runtime estimate on a T4: training set is slightly larger than round 2
+(~6750 vs ~6550 examples) -- expect roughly the same ~60-90 min total.
 """
 
 import json
