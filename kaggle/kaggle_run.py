@@ -8,17 +8,21 @@ the notebook, turning on GPU + internet, etc.) if you haven't done that yet.
 What this does, in order:
   1. Clones the FinGuard repo (or pulls latest if already cloned).
   2. Installs anything missing beyond Kaggle's preinstalled packages.
-  3. Trains the GENERAL-scope detector (deepset + advbench_mix -- no
-     finance-only bias) on the GPU, batched for speed.
+  3. Trains the general-purpose detector on deepset + a 6000-example
+     WildGuardMix subset (real training data, 15 harm categories --
+     replaced an earlier deepset+advbench_mix mix after THAT version's
+     zero-shot generalization came back weak: WildGuardTest/OR-Bench/
+     XSTest F1 of 0.60/0.30/0.22, trained on just 946 narrow examples).
   4. Evaluates it zero-shot (no retraining) on the three standard
      benchmarks: XSTest, OR-Bench, WildGuardTest.
   5. Saves everything (trained artifacts + a results JSON + a printed
      summary table) to /kaggle/working/ so you can download it and bring
      the numbers back.
 
-Runtime estimate on a T4: training ~5-10 min, each benchmark eval a
-few minutes -- expect ~25-40 min total, much faster than anything we
-managed locally today.
+Runtime estimate on a T4: training now takes longer than the first pass
+(~6500 examples vs ~950 before) -- expect ~30-45 min for training, plus
+the same few-minutes-each for the three benchmark evals. Budget ~60-90
+min total this time.
 """
 
 import json
@@ -49,16 +53,16 @@ subprocess.run([sys.executable, "-m", "pip", "install", "-q",
                 "transformers", "torch", "datasets", "scikit-learn", "joblib"], check=True)
 
 # ---------------------------------------------------------------------------
-# 3. Train the general-scope detector
+# 3. Train the general-purpose detector on deepset + WildGuardMix
 # ---------------------------------------------------------------------------
 from ai_guardrail import ActivationGuardrail  # noqa: E402
 
 print("=" * 70)
-print("Training general-scope detector on GPU ...")
+print("Training general-purpose detector on GPU (deepset + WildGuardMix subset) ...")
 print("=" * 70)
 
 guardrail = ActivationGuardrail()
-train_metadata = guardrail.train(batch_size=32)
+train_metadata = guardrail.train(batch_size=32, wildguardmix_samples=6000)
 print("\nTraining metadata:")
 print(json.dumps(train_metadata, indent=2))
 

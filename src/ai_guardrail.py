@@ -10,12 +10,19 @@ head against a real open-source guardrail product (see guardrail_granite.py
 + compare_products.py).
 
 Detector: mid-layer Qwen2.5 activations (probe_v3) -> logistic regression,
-trained on deepset (prompt injection) + advbench_mix (broad harmful-
-behavior categories) -- general-purpose, not finance-biased. `.check()`
-returns flagged/confidence only; there's no policy-category evidence layer
-because no general-purpose category-labeled dataset exists yet (the old
-finance-specific one, FinSec-MinPairs + policy_directions.py, still exists
-in this repo as R&D history but isn't wired into the shipped product).
+trained on deepset (prompt injection) + a real WildGuardMix subset (15 harm
+categories: violence, hate speech, misinformation, fraud, sexual content,
+cyberattack, privacy, etc. -- see benchmark_v2.load_wildguardmix_train).
+This replaced an earlier deepset+advbench_mix mix (946 examples, 2 narrow
+sources) after that version's zero-shot generalization to the standard
+benchmarks came back weak (WildGuardTest/OR-Bench/XSTest F1 of
+0.60/0.30/0.22) -- WildGuardMix is real training data covering the same
+distribution those benchmarks test, not a narrower proxy for it.
+`.check()` returns flagged/confidence only; there's no policy-category
+evidence layer because no general-purpose category-labeled dataset with
+that structure exists yet (the old finance-specific one, FinSec-MinPairs +
+policy_directions.py, still exists in this repo as R&D history but isn't
+wired into the shipped product).
 
 Trajectory (`.check_session` only): v4-style drift features are computed
 and reported, but NOT used to flip the allow/block decision -- the
@@ -60,16 +67,27 @@ class ActivationGuardrail:
     # Training
     # -----------------------------------------------------------------
 
-    def train(self, test_size=0.2, seed=42, batch_size=16):
+    def train(self, test_size=0.2, seed=42, batch_size=16, wildguardmix_samples=6000):
+        """
+        wildguardmix_samples: how many of WildGuardMix's 86,759 real
+        training examples to pull in (shuffled subset, see
+        benchmark_v2.load_wildguardmix_train). This is the fix for the
+        generalization gap found in the first general-purpose Kaggle run
+        (deepset+advbench_mix alone = 946 examples from 2 narrow sources;
+        zero-shot F1 on WildGuardTest/OR-Bench/XSTest was 0.60/0.30/0.22).
+        Set to None to use the full 86,759 (much longer training, only
+        worth it if 6000 isn't enough -- try the default first).
+        """
         from sklearn.model_selection import train_test_split
         from probe_v3 import build_activation_dataset, train_and_eval_probe
-        from benchmark_v2 import load_deepset, load_advbench_mix
+        from benchmark_v2 import load_deepset, load_wildguardmix_train
 
-        print("Loading training data: deepset + advbench_mix ...")
+        print("Loading training data: deepset + WildGuardMix (real, 15-category, "
+              f"{'full 86,759' if wildguardmix_samples is None else f'{wildguardmix_samples}-example subset'}) ...")
         deepset_examples = load_deepset(None)
-        advbench_examples = load_advbench_mix()
-        combined = deepset_examples + advbench_examples
-        print(f"  deepset: {len(deepset_examples)}  advbench_mix: {len(advbench_examples)}  "
+        wildguard_examples = load_wildguardmix_train(wildguardmix_samples)
+        combined = deepset_examples + wildguard_examples
+        print(f"  deepset: {len(deepset_examples)}  wildguardmix_train: {len(wildguard_examples)}  "
               f"combined: {len(combined)}")
 
         train_ex, test_ex = train_test_split(
@@ -199,6 +217,9 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--layer", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--wildguardmix_samples", type=int, default=6000,
+                         help="How many of WildGuardMix's 86,759 examples to train on "
+                              "(shuffled subset). Pass 0 for the full set (much longer).")
     parser.add_argument("--train", action="store_true", help="Force (re)train and persist artifacts")
     parser.add_argument("--check", type=str, default=None, help="Score a single prompt")
     args = parser.parse_args()
@@ -206,7 +227,8 @@ if __name__ == "__main__":
     guardrail = ActivationGuardrail(model_name=args.model, layer=args.layer)
 
     if args.train:
-        guardrail.train(batch_size=args.batch_size)
+        guardrail.train(batch_size=args.batch_size,
+                         wildguardmix_samples=(args.wildguardmix_samples or None))
     else:
         guardrail.ensure_ready()
 

@@ -75,6 +75,35 @@ def load_financial_fraud_text(max_samples: int = None):
     return examples
 
 
+def load_wildguardmix_train(max_samples: int = None, seed: int = 42):
+    """
+    Real WildGuardMix training split, via the ungated mirror
+    `iagoalves/wildguardmix_train_puro` (AI2's own allenai/wildguardmix is
+    gated). 86,759 examples across 15 harm categories -- violence, hate
+    speech, misinformation, fraud, sexual content, cyberattack, privacy,
+    etc. -- roughly balanced (46,216 harmful / 40,543 unharmful). Verified
+    directly: `prompt_harm_label` and `is_safe` agree on every row checked.
+
+    This is the SAME taxonomy/distribution WildGuardTest evaluates
+    against -- training on this instead of a narrow 2-source mix (deepset +
+    advbench_mix) is the fix for the generalization gap seen in the first
+    general-purpose Kaggle run (zero-shot F1: WildGuardTest 0.60, OR-Bench
+    0.30, XSTest 0.22 -- all trained on just 946 examples total).
+
+    Shuffled before subsetting (fixed seed) so max_samples pulls a
+    representative slice across all 15 categories, not just whatever's
+    first in the raw file order.
+
+    label: 1 = harmful, 0 = unharmful (benign).
+    """
+    from datasets import load_dataset
+
+    ds = load_dataset("iagoalves/wildguardmix_train_puro")["train"]
+    if max_samples:
+        ds = ds.shuffle(seed=seed).select(range(min(max_samples, len(ds))))
+    return [(row["prompt"], 1 if row["prompt_harm_label"] == "harmful" else 0) for row in ds]
+
+
 def load_or_bench(max_samples: int = None, n_toxic: int = None):
     """
     OR-Bench (Cui et al.) -- large over-refusal benchmark, second leg of
@@ -219,6 +248,7 @@ DATASET_LOADERS = {
     "financial_fraud_text": load_financial_fraud_text,
     "or_bench": load_or_bench,
     "wildguardtest": load_wildguardtest,
+    "wildguardmix_train": load_wildguardmix_train,
 }
 
 
@@ -305,7 +335,8 @@ def print_report(name: str, metrics: dict):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", choices=["deepset", "advbench_mix", "minimal_pairs", "xstest",
-                                               "financial_fraud_text", "or_bench", "wildguardtest", "both"],
+                                               "financial_fraud_text", "or_bench", "wildguardtest",
+                                               "wildguardmix_train", "both"],
                          default="deepset")
     parser.add_argument("--use_classifier", action="store_true",
                          help="Also run the toxicity classifier layer (slower, needs transformers+torch)")
@@ -318,7 +349,8 @@ if __name__ == "__main__":
     targets = ["deepset", "advbench_mix", "minimal_pairs"] if args.dataset == "both" else [args.dataset]
     all_results = {}
 
-    NEEDS_MAX_SAMPLES = {"deepset", "minimal_pairs", "xstest", "financial_fraud_text", "or_bench", "wildguardtest"}
+    NEEDS_MAX_SAMPLES = {"deepset", "minimal_pairs", "xstest", "financial_fraud_text", "or_bench",
+                          "wildguardtest", "wildguardmix_train"}
 
     for name in targets:
         print(f"\nLoading dataset: {name} ...")
