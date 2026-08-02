@@ -1,117 +1,89 @@
-# Running the standard benchmarks on Kaggle
+# Running validation on Kaggle — step by step
 
-Your M1 (8GB unified memory) is fine for the activation probe itself, but
-downloading + running full external guardrail models for comparison (like
-we hit with Granite Guardian) eats the whole machine. Kaggle gives you a
-free GPU (T4, 30 hrs/week) and ~13GB+ RAM with none of that pressure — do
-the validation runs there instead.
+Your M1 (8GB unified memory) has repeatedly stalled/OOM'd on anything
+beyond short-prompt runs today (long emails, broader training mixes).
+Kaggle gives a free GPU (T4, 30 hrs/week) with far more headroom — do the
+heavier runs there instead of fighting this laptop further.
 
-## What "validation on the standard benchmarks" means here
+Everything below assumes you've never used Kaggle before.
 
-Your project has been validated so far on:
-- `deepset/prompt-injections` (546 ex., real published dataset) ✅
-- FinSec-MinPairs (your own 64-example finance benchmark) ✅
+## What you're about to run
 
-Not yet validated on the three benchmarks guardrail papers actually get
-judged against:
-- **XSTest** — the over-refusal / pseudo-harm benchmark (this is the one
-  closest to your actual thesis — benign prompts that LOOK risky)
-- **OR-Bench** — larger, newer over-refusal benchmark, cross-checks XSTest
-- **WildGuardTest** — the standard comparison point most guardrail papers
-  report against (may be gated on HuggingFace — check when you get there;
-  if it asks you to log in / accept terms, you'll need a free HF account +
-  token, same as any gated model)
+`kaggle/kaggle_run.py` in this repo does all of it in one go:
+1. Trains the **general-scope** detector (deepset + advbench_mix — broad
+   harm categories, not finance-biased) on the GPU.
+2. Evaluates it, zero-shot, on the three standard benchmarks: **XSTest**,
+   **OR-Bench**, **WildGuardTest**.
+3. Saves the trained model + a results JSON you can download.
 
-## Step-by-step on Kaggle
+All three benchmark loaders are already written and verified (real label
+conventions checked against each dataset's actual published stats, not
+guessed) — you don't need to write or debug any code, just run the script.
 
-1. **Create a new Notebook** on kaggle.com (not a Script) — Settings →
-   Accelerator → **GPU T4 x2** (or whichever T4 option is offered on the
-   free tier).
+## Step by step
 
-2. **Enable internet access** in the notebook settings (needed to pull the
-   model + datasets from HuggingFace) — off by default on Kaggle.
+1. **Go to kaggle.com and sign in** (or make a free account if you don't
+   have one — top right, "Register").
 
-3. **Upload your repo** — easiest path: add your GitHub repo as a Kaggle
-   "Dataset" via File → Add Data → GitHub, pointing at
-   `https://github.com/Upasana1503/FinGuard`, OR just `git clone` it in
-   the first notebook cell:
-   ```python
-   !git clone https://github.com/Upasana1503/FinGuard.git
-   %cd FinGuard/src
-   !pip install -q transformers torch scikit-learn datasets joblib
-   ```
+2. **Create a notebook**: click **Create** (top left) → **New Notebook**.
+   You'll land in an empty notebook with one empty code cell.
 
-4. **Add loaders for the new benchmarks.** Your `benchmark_v2.py` currently
-   only knows `deepset`, `advbench_mix`, and `minimal_pairs`. You'll need to
-   add loader functions for XSTest and OR-Bench, same pattern as
-   `load_deepset()`:
-   ```python
-   def load_xstest(max_samples=None):
-       from datasets import load_dataset
-       ds = load_dataset("natolambert/xstest-v2-copy")["prompts"]  # check exact HF path/config when you get there
-       # XSTest's own convention: prompt_type starting with "contrast_" = should be refused (label 1),
-       # everything else = safe (label 0). Confirm this mapping against XSTest's paper/dataset card before trusting it.
-       examples = [(row["prompt"], 0 if row["type"].startswith("contrast") else 1) for row in ds]
-       if max_samples:
-           examples = examples[:max_samples]
-       return examples
-   ```
-   (Dataset card details change — search "xstest huggingface" when you're
-   actually there and confirm the exact config name and label convention
-   before running anything. Don't trust the snippet above blindly, verify
-   against the real dataset card.)
+3. **Turn on GPU**: on the right-hand sidebar, find **Session options** (or
+   click the "..." menu if you don't see it) → **Accelerator** → pick
+   **GPU T4 x2**. It'll say the session is restarting — that's normal.
 
-5. **Run the same scripts you already have**, just pointed at the new
-   dataset name, e.g.:
-   ```python
-   !python benchmark_v2.py --dataset xstest
-   !python probe_v3.py --dataset xstest --layer_sweep
-   ```
+4. **Turn on internet**: same right-hand sidebar, find **Internet** and
+   toggle it **On**. Off by default; the script needs it to clone the repo
+   and download the model + datasets.
 
-## Batching + subsetting (the actual fix for OOM/slowness)
+5. **Copy the whole script in**: open `kaggle/kaggle_run.py` from this
+   repo, select all, copy it, and paste it into that one empty cell in
+   your Kaggle notebook — replacing whatever's there.
 
-`probe_v3.py` and `diagnose_leakage.py` now extract activations in BATCHES
-instead of one text at a time (`--batch_size`, default 16) — verified this
-produces numerically identical results (cosine similarity >0.999999 against
-the old one-at-a-time path; the tiny float16 difference is just
-batching-order rounding noise, not a bug). This is a real speedup, not just
-a memory workaround: a 1.5B model's activations for a batch of 16-32 short
-prompts cost almost nothing extra over batch=1, since model *weights*
-dominate memory, not activations.
+6. **Run it**: click the ▶ (play) button next to the cell, or press
+   Shift+Enter. Output will start streaming below the cell.
 
-Practical settings for Kaggle's T4:
-```bash
-# raise batch_size on GPU -- 32-64 should be comfortable for a 1.5B model
-python probe_v3.py --dataset xstest --layer 8 --batch_size 32
+7. **Wait** — training takes ~5-10 min, each of the three benchmark
+   evaluations a few more minutes. **Expect roughly 25-40 minutes total.**
+   You'll see progress printouts the whole way (dataset loading, training
+   metrics, then each benchmark's results as they finish) — it's not
+   silent, so you'll know it's alive.
 
-# WildGuardTest is ~92k examples -- don't run the full set blind on your
-# first pass. Subset first to sanity-check the loader/labels are right,
-# THEN scale up:
-python probe_v3.py --dataset wildguardtest --max_samples 2000 --batch_size 32   # smoke test
-python probe_v3.py --dataset wildguardtest --batch_size 32                       # full run, once the smoke test looks right
-```
+8. **Get the results**: once it prints the `SUMMARY` table at the end,
+   look at the **right-hand sidebar** → **Output** tab (or browse
+   `/kaggle/working/` directly using the file browser icon). You'll find:
+   - `finguard_results/kaggle_validation_results.json` — the numbers
+   - `finguard_results/ai_guardrail_artifacts_general/` — the trained
+     model files (`detector_clf.joblib`, `metadata.json`, etc.)
 
-If you genuinely hit OOM (unlikely on a T4 for a 1.5B model, but possible
-if you're also holding a second model in memory — see the warning below),
-lower `--batch_size` back down rather than reducing `--max_samples`;
-subsetting changes what you're measuring, batch size doesn't.
+   Download both (each file/folder has a download icon on hover).
 
-6. **Save results before your session ends** — Kaggle sessions aren't
-   permanent. Either commit the notebook (File → Save Version) so the
-   output logs persist, or explicitly write results to `/kaggle/working/`
-   and download them before closing.
+9. **Bring it back**: paste the results JSON's contents back into this
+   conversation, or just tell me the run finished and where the files are
+   on your machine (e.g. `~/Downloads/kaggle_validation_results.json`) —
+   I'll fold the numbers into PROJECT_SUMMARY.md and swap the trained
+   artifacts into the repo/backend if they look good.
 
-7. **Bring the numbers back here** — once you have real XSTest/OR-Bench/
-   WildGuardTest results, paste them back into this conversation (or just
-   tell me you're ready) and I'll fold them into PROJECT_SUMMARY.md and,
-   if the numbers hold up, retrain the shipped product's artifacts on the
-   validated data before you deploy.
+## If something goes wrong
 
-## What NOT to do on Kaggle
+- **"No module named X"** — the script installs its own deps in step 2,
+  but if Kaggle's base image is missing something unusual, just add
+  `!pip install -q <package>` as a new cell above it and re-run.
+- **Session disconnects / times out** — Kaggle free sessions have a max
+  runtime (usually 9-12 hrs, way more than you need) and will warn before
+  killing an idle session. If it happens mid-run, just re-run the cell —
+  the script re-clones/pulls automatically and is idempotent.
+- **A dataset fails to load (gated/auth error)** — WildGuardTest and
+  OR-Bench are confirmed ungated as of when this was written, but
+  HuggingFace dataset availability can change. If you hit a gate, tell me
+  which dataset and I'll find an alternative mirror like I did for the
+  ones already in the script.
 
-- Don't try to load two big models in the same session at once (this is
-  exactly what killed the Granite Guardian comparison locally — same
-  memory-pressure failure mode applies on Kaggle too, just with a higher
-  ceiling before it bites).
-- Don't leave a session idle with the GPU accelerator on — burns your
-  30 free hrs/week for nothing.
+## What NOT to do
+
+- Don't load a second big model in the same session while this is running
+  (that's the exact memory-pressure failure that killed the Granite
+  Guardian comparison locally — Kaggle has more headroom, not infinite
+  headroom).
+- Don't leave a GPU session idle/running when you're not using it — it
+  burns your 30 free hrs/week for nothing.

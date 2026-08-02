@@ -178,8 +178,15 @@ def score_activation(act, directions):
 # ---------------------------------------------------------------------------
 
 def save_directions(path, directions, layer):
+    """Handles the empty-directions case (scope=general in ai_guardrail.py,
+    where no category-labeled dataset exists to train directions from) --
+    np.stack on an empty list raises, so that case gets an explicit
+    zero-row matrix instead of crashing."""
     categories = list(directions.keys())
-    matrix = np.stack([directions[c] for c in categories])
+    if categories:
+        matrix = np.stack([directions[c] for c in categories])
+    else:
+        matrix = np.zeros((0, 0), dtype=np.float32)
     np.savez(path, matrix=matrix, categories=np.array(categories), layer=layer)
 
 

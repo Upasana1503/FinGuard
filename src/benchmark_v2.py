@@ -75,6 +75,63 @@ def load_financial_fraud_text(max_samples: int = None):
     return examples
 
 
+def load_or_bench(max_samples: int = None, n_toxic: int = None):
+    """
+    OR-Bench (Cui et al.) -- large over-refusal benchmark, second leg of
+    the standard trio alongside XSTest.
+
+    Verified real structure (checked directly, not assumed): the HF repo
+    `bench-llm/or-bench` has three configs --
+      - or-bench-80k: 80,359 safe-but-scary-sounding prompts (label 0)
+      - or-bench-hard-1k: 1,319 of the HARDEST safe prompts, a curated
+        subset of the 80k (label 0) -- used here by default since 80k is
+        unnecessarily huge for a validation pass
+      - or-bench-toxic: 655 genuinely unsafe prompts (label 1)
+
+    label: 1 = genuinely unsafe (or-bench-toxic), 0 = safe-but-scary
+    (or-bench-hard-1k). Pass max_samples to cap the SAFE side if you want
+    a smaller/faster run; n_toxic caps the toxic side independently
+    (defaults to using all 655).
+    """
+    from datasets import load_dataset
+
+    safe_ds = load_dataset("bench-llm/or-bench", "or-bench-hard-1k")["train"]
+    toxic_ds = load_dataset("bench-llm/or-bench", "or-bench-toxic")["train"]
+
+    safe_examples = [(row["prompt"], 0) for row in safe_ds]
+    toxic_examples = [(row["prompt"], 1) for row in toxic_ds]
+
+    if max_samples:
+        safe_examples = safe_examples[:max_samples]
+    if n_toxic:
+        toxic_examples = toxic_examples[:n_toxic]
+
+    return safe_examples + toxic_examples
+
+
+def load_wildguardtest(max_samples: int = None):
+    """
+    WildGuardTest (Han et al., 2024) -- the standard comparison point most
+    published guardrail papers report against.
+
+    allenai's own repo (allenai/wildguardmix) is gated; using the verified
+    ungated mirror `walledai/WildGuardTest` instead (checked directly:
+    1725 rows, fields prompt/adversarial/label, label in
+    {"harmful": 754, "unharmful": 945, None: 26} -- the 26 None-label rows
+    are dropped since they can't be scored).
+
+    label: 1 = harmful, 0 = unharmful.
+    """
+    from datasets import load_dataset
+
+    ds = load_dataset("walledai/WildGuardTest")["train"]
+    examples = [(row["prompt"], 1 if row["label"] == "harmful" else 0)
+                for row in ds if row["label"] in ("harmful", "unharmful")]
+    if max_samples:
+        examples = examples[:max_samples]
+    return examples
+
+
 def load_xstest(max_samples: int = None):
     """
     XSTest (Röttger et al.) -- the canonical over-refusal / pseudo-harm
@@ -160,6 +217,8 @@ DATASET_LOADERS = {
     "minimal_pairs": load_minimal_pairs_flat,
     "xstest": load_xstest,
     "financial_fraud_text": load_financial_fraud_text,
+    "or_bench": load_or_bench,
+    "wildguardtest": load_wildguardtest,
 }
 
 
@@ -246,7 +305,7 @@ def print_report(name: str, metrics: dict):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", choices=["deepset", "advbench_mix", "minimal_pairs", "xstest",
-                                               "financial_fraud_text", "both"],
+                                               "financial_fraud_text", "or_bench", "wildguardtest", "both"],
                          default="deepset")
     parser.add_argument("--use_classifier", action="store_true",
                          help="Also run the toxicity classifier layer (slower, needs transformers+torch)")
@@ -259,7 +318,7 @@ if __name__ == "__main__":
     targets = ["deepset", "advbench_mix", "minimal_pairs"] if args.dataset == "both" else [args.dataset]
     all_results = {}
 
-    NEEDS_MAX_SAMPLES = {"deepset", "minimal_pairs", "xstest", "financial_fraud_text"}
+    NEEDS_MAX_SAMPLES = {"deepset", "minimal_pairs", "xstest", "financial_fraud_text", "or_bench", "wildguardtest"}
 
     for name in targets:
         print(f"\nLoading dataset: {name} ...")
