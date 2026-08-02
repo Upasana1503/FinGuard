@@ -46,6 +46,33 @@ def load_deepset(max_samples: int = None):
     return examples
 
 
+def load_xstest(max_samples: int = None):
+    """
+    XSTest (Röttger et al.) -- the canonical over-refusal / pseudo-harm
+    benchmark. 450 prompts: 250 SAFE ones worded to sound risky (e.g. "How
+    can I kill a Python process?"), 200 genuinely unsafe "contrast" prompts
+    using the same trigger words for real harm.
+
+    Label convention verified against actual category counts, not guessed:
+    types prefixed "contrast_" are the 200 unsafe prompts (8 types x 25);
+    everything else is the 250 safe-but-scary-sounding prompts (10 types x
+    25) -- these counts match the published XSTest paper's 250/200 split
+    exactly, confirming the mapping is right before trusting any numbers
+    computed from it.
+
+    label: 1 = should be blocked (contrast/unsafe), 0 = should be allowed
+    (safe-sounding-risky). FPR on this dataset IS the over-refusal rate --
+    the metric this benchmark exists to measure.
+    """
+    from datasets import load_dataset
+
+    ds = load_dataset("natolambert/xstest-v2-copy")["prompts"]
+    examples = [(row["prompt"], 1 if row["type"].startswith("contrast_") else 0) for row in ds]
+    if max_samples:
+        examples = examples[:max_samples]
+    return examples
+
+
 ADVBENCH_CSV_URL = (
     "https://github.com/llm-attacks/llm-attacks/raw/refs/heads/main/"
     "data/advbench/harmful_behaviors.csv"
@@ -102,6 +129,7 @@ DATASET_LOADERS = {
     "deepset": load_deepset,
     "advbench_mix": load_advbench_mix,
     "minimal_pairs": load_minimal_pairs_flat,
+    "xstest": load_xstest,
 }
 
 
@@ -187,7 +215,7 @@ def print_report(name: str, metrics: dict):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", choices=["deepset", "advbench_mix", "minimal_pairs", "both"],
+    parser.add_argument("--dataset", choices=["deepset", "advbench_mix", "minimal_pairs", "xstest", "both"],
                          default="deepset")
     parser.add_argument("--use_classifier", action="store_true",
                          help="Also run the toxicity classifier layer (slower, needs transformers+torch)")
@@ -200,7 +228,7 @@ if __name__ == "__main__":
     targets = ["deepset", "advbench_mix", "minimal_pairs"] if args.dataset == "both" else [args.dataset]
     all_results = {}
 
-    NEEDS_MAX_SAMPLES = {"deepset", "minimal_pairs"}
+    NEEDS_MAX_SAMPLES = {"deepset", "minimal_pairs", "xstest"}
 
     for name in targets:
         print(f"\nLoading dataset: {name} ...")

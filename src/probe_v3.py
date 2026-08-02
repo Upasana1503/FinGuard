@@ -188,7 +188,7 @@ if __name__ == "__main__":
     from benchmark_v2 import DATASET_LOADERS  # reuse your v2 dataset loaders
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", choices=["deepset", "advbench_mix", "minimal_pairs"], default="deepset")
+    parser.add_argument("--dataset", choices=["deepset", "advbench_mix", "minimal_pairs", "xstest"], default="deepset")
     parser.add_argument("--model", default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--layer", type=int, default=8, help="Which hidden layer to probe")
     parser.add_argument("--layer_sweep", action="store_true",
