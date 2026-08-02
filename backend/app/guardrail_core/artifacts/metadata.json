@@ -1,0 +1,36 @@
+{
+  "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
+  "layer": 8,
+  "trained_at": "2026-07-31T16:47:31Z",
+  "detector_metrics": {
+    "precision": 0.9298,
+    "recall": 1.0,
+    "f1": 0.9636,
+    "false_positive_rate": 0.0488,
+    "accuracy": 0.9704,
+    "tp": 53,
+    "fp": 4,
+    "tn": 78,
+    "fn": 0
+  },
+  "direction_metrics": {
+    "layer": 8,
+    "n_categories": 8,
+    "n_train_pairs": 48,
+    "n_test_pairs": 16,
+    "train_pairs_per_category": {
+      "unauthorized_fund_transfer": 6,
+      "insider_trading_facilitation": 6,
+      "structuring_money_laundering": 6,
+      "account_takeover_finance": 6,
+      "credential_bypass_intrusion": 6,
+      "malware_development": 6,
+      "data_exfiltration": 6,
+      "social_engineering_phishing": 6
+    },
+    "category_attribution_accuracy": 0.125,
+    "own_direction_pair_discrimination": 1.0
+  },
+  "train_n": 539,
+  "test_n": 135
+}
