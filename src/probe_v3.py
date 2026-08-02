@@ -107,9 +107,15 @@ def extract_activation(text: str, model, tokenizer, device: str, layer: int) -> 
     with torch.no_grad():
         outputs = _base_transformer(model)(**inputs, output_hidden_states=True)
 
-    hidden = outputs.hidden_states[layer]        # (batch=1, seq_len, hidden_dim)
-    pooled = hidden.mean(dim=1).squeeze(0)        # mean-pool over tokens -> (hidden_dim,)
-    return pooled.float().cpu().numpy()
+    # Cast to float32 BEFORE reducing, not after. Residual-stream activations
+    # have known outlier dimensions that can run large in magnitude; summing
+    # ~256 of them in float16 (max ~65504) can overflow to inf, which then
+    # poisons the classifier (confirmed on Kaggle's CUDA float16 math --
+    # MPS's float16 apparently tolerated it, CUDA's didn't. Real bug, not a
+    # platform quirk: the fix is dtype hygiene, not a CUDA workaround).
+    hidden = outputs.hidden_states[layer].float()  # (batch=1, seq_len, hidden_dim)
+    pooled = hidden.mean(dim=1).squeeze(0)          # mean-pool over tokens -> (hidden_dim,)
+    return pooled.cpu().numpy()
 
 
 def extract_activations_batch(texts, model, tokenizer, device, layer, batch_size=16, verbose=True):
@@ -139,13 +145,17 @@ def extract_activations_batch(texts, model, tokenizer, device, layer, batch_size
         with torch.no_grad():
             outputs = _base_transformer(model)(**inputs, output_hidden_states=True)
 
-        hidden = outputs.hidden_states[layer]                      # (batch, seq_len, hidden_dim)
+        # float32 before the reduction, not after -- see extract_activation's
+        # comment: summing ~256 float16 residual-stream values can overflow
+        # to inf (confirmed on Kaggle CUDA), especially here where batching
+        # adds even more terms into the same sum.
+        hidden = outputs.hidden_states[layer].float()               # (batch, seq_len, hidden_dim)
         mask = inputs["attention_mask"].unsqueeze(-1).to(hidden.dtype)  # (batch, seq_len, 1)
         summed = (hidden * mask).sum(dim=1)                         # (batch, hidden_dim)
         counts = mask.sum(dim=1).clamp(min=1e-9)                    # (batch, 1) -- real-token count per text
         pooled = summed / counts
 
-        all_vecs.append(pooled.float().cpu().numpy())
+        all_vecs.append(pooled.cpu().numpy())
 
         done = min(start + batch_size, n)
         if verbose and (done % 50 < batch_size or done == n):
@@ -175,6 +185,19 @@ def train_and_eval_probe(X_train, y_train, X_test, y_test):
     # This matters here because hidden_dim (~1500+) >> n_train (~100s),
     # which makes plain LogisticRegression prone to finding spurious
     # correlations even in noise -- exactly what your control test flagged.
+    # Guard against inf/nan in the activation matrices before handing them
+    # to sklearn -- fails with a message that points at the actual cause
+    # (extraction-side numerical issue) instead of sklearn's generic
+    # "contains infinity" error with no indication of where it came from.
+    for name, arr in [("X_train", X_train), ("X_test", X_test)]:
+        if not np.all(np.isfinite(arr)):
+            n_bad = np.count_nonzero(~np.isfinite(arr))
+            raise ValueError(
+                f"{name} contains {n_bad} non-finite value(s) (inf/nan) -- this means activation "
+                f"extraction overflowed, most likely a float16 reduction issue (see "
+                f"extract_activation/extract_activations_batch in this file). Not a data problem."
+            )
+
     clf = LogisticRegressionCV(
         max_iter=2000, class_weight="balanced", cv=5, Cs=10,
     )

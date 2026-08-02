@@ -77,9 +77,14 @@ class GuardrailEngine:
         base = self.model.model if hasattr(self.model, "model") else self.model
         with torch.no_grad():
             outputs = base(**inputs, output_hidden_states=True)
-        hidden = outputs.hidden_states[self.layer]
+        # float32 before the reduction, not after -- summing ~256 float16
+        # residual-stream values (which have known large-magnitude outlier
+        # dimensions) can overflow to inf. Confirmed on Kaggle's CUDA float16
+        # math during training; fixed at the source here too since this is
+        # the same pooling operation, just at inference time.
+        hidden = outputs.hidden_states[self.layer].float()
         pooled = hidden.mean(dim=1).squeeze(0)
-        return pooled.float().cpu().numpy()
+        return pooled.cpu().numpy()
 
     def check(self, text: str) -> dict:
         start = time.perf_counter()
