@@ -1,28 +1,25 @@
 """
 AI Guardrail — the packaged final product.
 
-Everything in v1-v6 was the R&D trail (see PROJECT_SUMMARY.md for the full
-history, including the negative/inconclusive results and the finance-vs-
-general scoping decision -- the project pivoted to general-purpose, and
-this file only implements that scope now, no toggle). Single class with a
-clean `.check()` / `.check_session()` API, meant to be pointed at head-to-
-head against a real open-source guardrail product (see guardrail_granite.py
-+ compare_products.py).
+General-purpose harmful-intent classifier for LLM agents -- not scoped to
+any domain. Single class with a clean `.check()` / `.check_session()` API,
+meant to be pointed at head-to-head against a real open-source guardrail
+product (see guardrail_granite.py + compare_products.py).
 
 Detector: mid-layer Qwen2.5 activations (probe_v3) -> logistic regression,
-trained on deepset (prompt injection) + a real WildGuardMix subset (15 harm
-categories: violence, hate speech, misinformation, fraud, sexual content,
-cyberattack, privacy, etc. -- see benchmark_v2.load_wildguardmix_train).
-This replaced an earlier deepset+advbench_mix mix (946 examples, 2 narrow
-sources) after that version's zero-shot generalization to the standard
-benchmarks came back weak (WildGuardTest/OR-Bench/XSTest F1 of
-0.60/0.30/0.22) -- WildGuardMix is real training data covering the same
-distribution those benchmarks test, not a narrower proxy for it.
-`.check()` returns flagged/confidence only; there's no policy-category
-evidence layer because no general-purpose category-labeled dataset with
-that structure exists yet (the old finance-specific one, FinSec-MinPairs +
-policy_directions.py, still exists in this repo as R&D history but isn't
-wired into the shipped product).
+trained on deepset (prompt injection) + a real WildGuardMix subset (15
+harm categories: violence, hate speech, misinformation, fraud, sexual
+content, cyberattack, privacy, etc. -- see
+benchmark_v2.load_wildguardmix_train). WildGuardTest is the primary
+validation benchmark (same taxonomy as the training data); see
+PROJECT_SUMMARY.md for the full tuning history, including two rounds that
+tried mixing in AdvBench for broader style coverage and made things worse
+-- reverted, WildGuardMix alone is what's actually shown to work.
+
+`.check()` returns flagged/confidence only -- no policy-category evidence
+layer, because no general-purpose category-labeled dataset with that
+structure exists (an earlier finance-specific version of this, built on a
+self-authored dataset, was dropped entirely -- see PROJECT_SUMMARY.md).
 
 Trajectory (`.check_session` only): v4-style drift features are computed
 and reported, but NOT used to flip the allow/block decision -- the
@@ -67,50 +64,34 @@ class ActivationGuardrail:
     # Training
     # -----------------------------------------------------------------
 
-    def train(self, test_size=0.2, seed=42, batch_size=16, wildguardmix_samples=2500):
+    def train(self, test_size=0.2, seed=42, batch_size=16, wildguardmix_samples=15000):
         """
-        Round 3 tried adding AdvBench's malicious-only short-form prompts
-        (200 of them) to fix a length/style transfer gap (WildGuardMix
-        trains on ~80-word elaborate prompts; XSTest/OR-Bench are ~9-18
-        words; classifier learned "harmful" as a long-form pattern). Result
-        was barely a change (XSTest F1 0.29->0.33, OR-Bench flat) -- because
-        200 examples was under 3% of a 6746-example training set, nowhere
-        near enough weight to shift what got learned from the other 97%.
-
-        Round 4 (this version): use the FULL AdvBench set (520, not 200)
-        AND cut wildguardmix_samples down (6000 -> 2500 default) so
-        short-form isn't a rounding error. deepset (546) + AdvBench (520)
-        = 1066 short-form examples against 2500 WildGuardMix -> ~30% of
-        the mix, instead of ~3%. Tradeoff to watch: less WildGuardMix
-        volume could soften WildGuardTest's now-good transfer (F1 0.77) --
-        worth it if it actually fixes XSTest/OR-Bench, but confirm both
-        move in the numbers, not just assume the trade was worth it.
-
-        Also: OR-Bench's `or-bench-hard-1k` split is SPECIFICALLY the 1000
-        safe prompts curated because they trick over-cautious models --
-        some elevated FPR there is the benchmark doing its job, not purely
-        a bug. Don't expect this rebalance to fully zero it out.
+        Tuning history (full numbers in PROJECT_SUMMARY.md): rounds 3-4
+        tried mixing in AdvBench for broader style coverage (short, blunt
+        commands, meant to complement WildGuardMix's long elaborate style).
+        Round 4 in particular (AdvBench at ~30% of the mix) made
+        WildGuardTest WORSE (F1 0.77->0.75) along with everything else --
+        reverted. The one thing that has consistently helped across every
+        round is more real WildGuardMix data, because it's the same
+        distribution WildGuardTest itself is drawn from. So: deepset
+        (general prompt-injection coverage) + a much bigger WildGuardMix
+        subset, nothing else.
 
         wildguardmix_samples: how many of WildGuardMix's 86,759 examples to
         pull in (shuffled subset, see benchmark_v2.load_wildguardmix_train).
+        Set to None for the full 86,759 (much longer training).
         """
         from sklearn.model_selection import train_test_split
         from probe_v3 import build_activation_dataset, train_and_eval_probe
-        from benchmark_v2 import load_deepset, load_advbench_mix, load_wildguardmix_train
+        from benchmark_v2 import load_deepset, load_wildguardmix_train
 
-        print("Loading training data: deepset + full AdvBench (malicious-only, short-form) "
-              "+ WildGuardMix (real, 15-category, "
+        print("Loading training data: deepset + WildGuardMix (real, 15-category, "
               f"{'full 86,759' if wildguardmix_samples is None else f'{wildguardmix_samples}-example subset'}) ...")
         deepset_examples = load_deepset(None)
-        # n_benign=1 (not the default 200) -- we discard AdvBench's usual
-        # OpenOrca benign pairing anyway (see the round-3 note in git log:
-        # it's ~142 words, would reintroduce the confound), no need to
-        # download 200 examples of it just to throw them away.
-        advbench_malicious_only = [(t, l) for t, l in load_advbench_mix(n_malicious=520, n_benign=1) if l == 1]
         wildguard_examples = load_wildguardmix_train(wildguardmix_samples)
-        combined = deepset_examples + advbench_malicious_only + wildguard_examples
-        print(f"  deepset: {len(deepset_examples)}  advbench(malicious-only): {len(advbench_malicious_only)}  "
-              f"wildguardmix_train: {len(wildguard_examples)}  combined: {len(combined)}")
+        combined = deepset_examples + wildguard_examples
+        print(f"  deepset: {len(deepset_examples)}  wildguardmix_train: {len(wildguard_examples)}  "
+              f"combined: {len(combined)}")
 
         train_ex, test_ex = train_test_split(
             combined, test_size=test_size, random_state=seed,
@@ -239,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--layer", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--wildguardmix_samples", type=int, default=2500,
+    parser.add_argument("--wildguardmix_samples", type=int, default=15000,
                          help="How many of WildGuardMix's 86,759 examples to train on "
                               "(shuffled subset). Pass 0 for the full set (much longer).")
     parser.add_argument("--train", action="store_true", help="Force (re)train and persist artifacts")

@@ -236,6 +236,76 @@ def train_and_eval_probe(X_train, y_train, X_test, y_test):
     }, clf
 
 
+def evaluate_with_threshold_metrics(clf, X, y):
+    """
+    Threshold-independent + threshold-optimal metrics, not just default-
+    cutoff F1. Why this exists: every prior benchmark run in this project
+    reported F1 at whatever the classifier's built-in 0.5 probability
+    cutoff happened to be -- but that cutoff is shaped by the TRAINING
+    distribution's balance, not calibrated for each eval set's actual
+    difficulty. A "bad F1" can mean either (a) the model can't separate
+    the classes at all, or (b) it separates them fine but 0.5 is the wrong
+    cutoff for this particular data -- those need completely different
+    fixes (more/better data vs. just picking a better threshold), and you
+    can't tell them apart from F1 alone.
+
+    Returns:
+      auc_roc, auprc      -- threshold-independent ranking quality
+      default_threshold    -- metrics at clf's own 0.5 cutoff (comparable
+                               to every earlier round's numbers)
+      best_f1_threshold    -- metrics at whatever cutoff maximizes F1 on
+                               THIS data (upper bound on what calibration
+                               alone could buy you -- not a real deployment
+                               threshold, since it's picked with knowledge
+                               of the labels, but tells you if there's
+                               headroom worth chasing)
+      recall_at_5pct_fpr, recall_at_10pct_fpr -- the operational metric
+                               guardrail papers actually report: catch rate
+                               at a fixed, tolerable false-alarm budget
+    """
+    from sklearn.metrics import (
+        roc_auc_score, average_precision_score, roc_curve,
+        precision_score, recall_score, f1_score, confusion_matrix,
+    )
+
+    proba = clf.predict_proba(X)[:, 1]
+
+    def metrics_at_threshold(threshold):
+        preds = (proba >= threshold).astype(int)
+        tn, fp, _fn, tp = confusion_matrix(y, preds, labels=[0, 1]).ravel()
+        return {
+            "threshold": round(float(threshold), 4),
+            "precision": round(float(precision_score(y, preds, zero_division=0)), 4),
+            "recall": round(float(recall_score(y, preds, zero_division=0)), 4),
+            "f1": round(float(f1_score(y, preds, zero_division=0)), 4),
+            "false_positive_rate": round(float(fp / (fp + tn)) if (fp + tn) > 0 else 0.0, 4),
+            "accuracy": round(float((tp + tn) / len(y)), 4),
+        }
+
+    fpr_curve, tpr_curve, _thresholds = roc_curve(y, proba)
+
+    def recall_at_fpr_budget(max_fpr):
+        # roc_curve's arrays are sorted by ascending threshold -> descending
+        # fpr; take the highest-recall point that still respects the budget.
+        eligible = [tpr for fp_, tpr in zip(fpr_curve, tpr_curve) if fp_ <= max_fpr]
+        return round(float(max(eligible)), 4) if eligible else 0.0
+
+    best_threshold, best_f1 = 0.5, -1.0
+    for t in np.unique(proba):
+        f1 = f1_score(y, (proba >= t).astype(int), zero_division=0)
+        if f1 > best_f1:
+            best_f1, best_threshold = f1, t
+
+    return {
+        "auc_roc": round(float(roc_auc_score(y, proba)), 4),
+        "auprc": round(float(average_precision_score(y, proba)), 4),
+        "default_threshold": metrics_at_threshold(0.5),
+        "best_f1_threshold": metrics_at_threshold(best_threshold),
+        "recall_at_5pct_fpr": recall_at_fpr_budget(0.05),
+        "recall_at_10pct_fpr": recall_at_fpr_budget(0.10),
+    }
+
+
 # ---------------------------------------------------------------------------
 # 3. Main
 # ---------------------------------------------------------------------------

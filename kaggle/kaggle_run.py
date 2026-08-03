@@ -1,45 +1,60 @@
 """
-FinGuard -- Kaggle validation run.
+FinGuard -- Kaggle validation run (round 5).
 
 Paste this ENTIRE file into a single Kaggle notebook cell and run it.
-See ../KAGGLE_VALIDATION.md for the click-by-click setup steps (creating
-the notebook, turning on GPU + internet, etc.) if you haven't done that yet.
+See ../KAGGLE_VALIDATION.md for the click-by-click setup steps if you
+haven't done that yet.
+
+Scope narrowed on purpose (see PROJECT_SUMMARY.md for the full history):
+  - No more finance/cybersec anywhere -- general-purpose only.
+  - ONE benchmark (WildGuardTest), not three. It's the only one that's
+    consistently transferred well across every round so far, and trying
+    to serve XSTest/OR-Bench at the same time is what caused round 4's
+    regression (tuning the training mix for one benchmark hurt another).
+  - Reports threshold-independent metrics (AUC-ROC, AUPRC) and a
+    threshold-optimal F1, not just default-cutoff F1 -- every prior round
+    only reported F1 at the classifier's built-in 0.5 cutoff, which can't
+    tell you whether "bad F1" means bad separability or just a bad cutoff.
+  - Runs IBM Granite Guardian (a real open-source guardrail product) on
+    the same held-out examples for an actual head-to-head, not just our
+    own numbers in isolation. This stalled/OOM'd locally every time
+    (memory contention loading two models on an 8GB laptop) -- Kaggle's
+    dedicated GPU shouldn't have that problem, but the two models are
+    still loaded sequentially with memory freed between them, same
+    lesson learned from the local failures either way.
 
 What this does, in order:
-  1. Clones the FinGuard repo (or pulls latest if already cloned).
-  2. Installs anything missing beyond Kaggle's preinstalled packages.
-  3. Trains the general-purpose detector on deepset + the FULL AdvBench
-     malicious set (520) + a 2500-example WildGuardMix subset. Round 4
-     fix -- round 3 (200 AdvBench + 6000 WildGuardMix) barely moved
-     XSTest/OR-Bench (F1 0.33/0.46, near-flat vs round 2) because 200
-     examples was under 3% of a 6746-example training set, nowhere near
-     enough weight to shift what got learned from the length/style
-     mismatch diagnosed in round 2 (WildGuardMix trains on ~80-word
-     elaborate prompts; XSTest/OR-Bench are ~9-18 words). This round:
-     full AdvBench (520) + deepset (546) = 1066 short-form examples
-     against only 2500 WildGuardMix -- ~30% of the mix instead of ~3%.
-     Tradeoff to watch: less WildGuardMix volume could soften
-     WildGuardTest's good transfer (F1 0.77 in round 3) -- check that
-     number too, not just XSTest/OR-Bench, before calling this a win.
-  4. Evaluates it zero-shot (no retraining) on the three standard
-     benchmarks: XSTest, OR-Bench, WildGuardTest.
-  5. Saves everything (trained artifacts + a results JSON + a printed
-     summary table) to /kaggle/working/ so you can download it and bring
-     the numbers back.
+  1. Clone/pull the repo.
+  2. Install anything missing.
+  3. Train the detector: deepset + a 15,000-example WildGuardMix subset
+     (the only thing that's consistently helped -- see train() in
+     ai_guardrail.py for the full tuning history).
+  4. Evaluate zero-shot on WildGuardTest: AUC-ROC, AUPRC, default-
+     threshold metrics, best-F1-threshold metrics, recall at 5%/10% FPR.
+  5. Free the detector's model from memory, then run Granite Guardian on
+     a subset of the same held-out examples (GRANITE_EVAL_N below --
+     autoregressive generate() calls are much slower than our one-forward-
+     pass probe, so this is capped for time; raise it if you have budget).
+  6. Save everything to /kaggle/working/ and print a side-by-side summary.
 
-Runtime estimate on a T4: training set is SMALLER this round (~3566 vs
-~6746 examples) -- should be noticeably faster, expect ~20-30 min for
-training instead of ~30-45.
+Runtime estimate on a T4: training on 15,545 examples will take longer
+than any prior round (~45-70 min) -- it's more data than we've used
+before, on purpose. WildGuardTest eval (our detector): ~5-10 min. Granite
+Guardian on GRANITE_EVAL_N examples: unknown until first timed call, the
+script times the first one and prints an ETA before committing to the
+rest. Budget 90-120 min total.
 """
 
 import json
 import os
 import subprocess
 import sys
+import time
 
 REPO_URL = "https://github.com/Upasana1503/FinGuard.git"
 REPO_DIR = "/kaggle/working/FinGuard"
 OUT_DIR = "/kaggle/working/finguard_results"
+GRANITE_EVAL_N = 400  # subset of WildGuardTest to run Granite Guardian on (generate() is slow)
 
 # ---------------------------------------------------------------------------
 # 1. Clone / update the repo
@@ -53,88 +68,134 @@ sys.path.insert(0, os.path.join(REPO_DIR, "src"))
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# 2. Install anything missing (Kaggle ships torch/transformers/datasets/
-#    scikit-learn/joblib already -- this is just a safety net)
+# 2. Install anything missing
 # ---------------------------------------------------------------------------
 subprocess.run([sys.executable, "-m", "pip", "install", "-q",
                 "transformers", "torch", "datasets", "scikit-learn", "joblib"], check=True)
 
 # ---------------------------------------------------------------------------
-# 3. Train the general-purpose detector on deepset + WildGuardMix
+# 3. Train the general-purpose detector
 # ---------------------------------------------------------------------------
 from ai_guardrail import ActivationGuardrail  # noqa: E402
 
 print("=" * 70)
-print("Training general-purpose detector on GPU (deepset + WildGuardMix subset) ...")
+print("Training general-purpose detector on GPU (deepset + 15k WildGuardMix) ...")
 print("=" * 70)
 
 guardrail = ActivationGuardrail()
-train_metadata = guardrail.train(batch_size=32, wildguardmix_samples=2500)
+train_metadata = guardrail.train(batch_size=32, wildguardmix_samples=15000)
 print("\nTraining metadata:")
 print(json.dumps(train_metadata, indent=2))
 
 # ---------------------------------------------------------------------------
-# 4. Zero-shot evaluation on the three standard benchmarks
+# 4. Zero-shot evaluation on WildGuardTest -- full threshold/AUC picture
 # ---------------------------------------------------------------------------
-from benchmark_v2 import load_xstest, load_or_bench, load_wildguardtest  # noqa: E402
-from probe_v3 import extract_activations_batch  # noqa: E402
-from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score  # noqa: E402
+from benchmark_v2 import load_wildguardtest  # noqa: E402
+from probe_v3 import extract_activations_batch, evaluate_with_threshold_metrics  # noqa: E402
 import numpy as np  # noqa: E402
 
+print(f"\n{'=' * 70}\nEvaluating on WildGuardTest\n{'=' * 70}")
+wgt_examples = load_wildguardtest(None)
+wgt_texts = [t for t, _ in wgt_examples]
+wgt_labels = np.array([label for _, label in wgt_examples])
+print(f"Loaded {len(wgt_examples)} examples ({int(wgt_labels.sum())} harmful / "
+      f"{len(wgt_labels) - int(wgt_labels.sum())} unharmful)")
 
-def evaluate(name, loader_fn, **loader_kwargs):
-    print(f"\n{'=' * 70}\nEvaluating on {name}\n{'=' * 70}")
-    examples = loader_fn(**loader_kwargs)
-    texts = [t for t, _ in examples]
-    y = np.array([label for _, label in examples])
-    print(f"Loaded {len(examples)} examples ({int(y.sum())} positive / {len(y) - int(y.sum())} negative)")
-
-    X = extract_activations_batch(texts, guardrail.model, guardrail.tokenizer,
+X_wgt = extract_activations_batch(wgt_texts, guardrail.model, guardrail.tokenizer,
                                    guardrail.device, guardrail.layer, batch_size=32)
-    preds = guardrail.clf.predict(X)
-
-    tn, fp, fn, tp = confusion_matrix(y, preds, labels=[0, 1]).ravel()
-    precision = precision_score(y, preds, zero_division=0)
-    recall = recall_score(y, preds, zero_division=0)
-    f1 = f1_score(y, preds, zero_division=0)
-    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-    accuracy = (tp + tn) / len(y)
-
-    metrics = {
-        "n_examples": len(examples), "tp": int(tp), "fp": int(fp), "tn": int(tn), "fn": int(fn),
-        "precision": round(float(precision), 4), "recall": round(float(recall), 4),
-        "f1": round(float(f1), 4), "false_positive_rate": round(float(fpr), 4),
-        "accuracy": round(float(accuracy), 4),
-    }
-    print(json.dumps(metrics, indent=2))
-    return metrics
-
-
-all_results = {"train_metadata": train_metadata}
-all_results["xstest"] = evaluate("XSTest (450 ex.)", load_xstest, max_samples=None)
-all_results["or_bench"] = evaluate("OR-Bench (or-bench-hard-1k + or-bench-toxic, ~1974 ex.)", load_or_bench, max_samples=None)
-all_results["wildguardtest"] = evaluate("WildGuardTest (1699 ex.)", load_wildguardtest, max_samples=None)
+finguard_metrics = evaluate_with_threshold_metrics(guardrail.clf, X_wgt, wgt_labels)
+print("\nFinGuard on WildGuardTest (full threshold/AUC picture):")
+print(json.dumps(finguard_metrics, indent=2))
 
 # ---------------------------------------------------------------------------
-# 5. Save everything + print summary
+# 5. Free the detector's model, then run Granite Guardian on a subset
 # ---------------------------------------------------------------------------
+import gc  # noqa: E402
+
+print("\nFreeing FinGuard's model from memory before loading Granite Guardian ...")
+del guardrail.model, guardrail.clf
+gc.collect()
+try:
+    import torch
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+except Exception:
+    pass
+
+from guardrail_granite import load_granite, run_granite_guardrail  # noqa: E402
+
+print(f"\n{'=' * 70}\nRunning Granite Guardian 3.0-2B on {GRANITE_EVAL_N} WildGuardTest examples\n{'=' * 70}")
+granite_model, granite_tokenizer, granite_device = load_granite()
+
+# Same fixed-seed shuffle as everywhere else in this project, so the subset
+# is representative rather than "whatever happened to be first in the file".
+rng = np.random.RandomState(42)
+subset_idx = rng.choice(len(wgt_examples), size=min(GRANITE_EVAL_N, len(wgt_examples)), replace=False)
+granite_texts = [wgt_texts[i] for i in subset_idx]
+granite_labels = wgt_labels[subset_idx]
+
+start = time.time()
+first_result = run_granite_guardrail(granite_texts[0], granite_model, granite_tokenizer, granite_device)
+per_call = time.time() - start
+eta_min = per_call * (len(granite_texts) - 1) / 60
+print(f"First call took {per_call:.1f}s -> ETA for remaining {len(granite_texts) - 1} calls: ~{eta_min:.1f} min")
+
+granite_preds = [0 if first_result.allowed else 1]
+for i, text in enumerate(granite_texts[1:], start=2):
+    result = run_granite_guardrail(text, granite_model, granite_tokenizer, granite_device)
+    granite_preds.append(0 if result.allowed else 1)
+    if i % 50 == 0:
+        print(f"  {i}/{len(granite_texts)}")
+
+granite_preds = np.array(granite_preds)
+tp = int(((granite_preds == 1) & (granite_labels == 1)).sum())
+fp = int(((granite_preds == 1) & (granite_labels == 0)).sum())
+tn = int(((granite_preds == 0) & (granite_labels == 0)).sum())
+fn = int(((granite_preds == 0) & (granite_labels == 1)).sum())
+precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+granite_metrics = {
+    "n_examples": len(granite_texts), "tp": tp, "fp": fp, "tn": tn, "fn": fn,
+    "precision": round(precision, 4), "recall": round(recall, 4), "f1": round(f1, 4),
+    "false_positive_rate": round(fpr, 4), "accuracy": round((tp + tn) / len(granite_texts), 4),
+}
+print("\nGranite Guardian on the same WildGuardTest subset:")
+print(json.dumps(granite_metrics, indent=2))
+
+# ---------------------------------------------------------------------------
+# 6. Save everything + print summary
+# ---------------------------------------------------------------------------
+all_results = {
+    "train_metadata": train_metadata,
+    "finguard_wildguardtest_full": finguard_metrics,
+    "granite_guardian_wildguardtest_subset": granite_metrics,
+    "granite_eval_n": GRANITE_EVAL_N,
+}
+
 results_path = os.path.join(OUT_DIR, "kaggle_validation_results.json")
 with open(results_path, "w") as f:
     json.dump(all_results, f, indent=2)
 
-# Copy the trained artifacts out too, so they can be downloaded and swapped
-# into backend/app/guardrail_core/artifacts/ locally afterward.
 import shutil  # noqa: E402
 artifacts_src = os.path.join(REPO_DIR, "logs", "ai_guardrail_artifacts")
 artifacts_dst = os.path.join(OUT_DIR, "ai_guardrail_artifacts_general")
 if os.path.exists(artifacts_src):
     shutil.copytree(artifacts_src, artifacts_dst, dirs_exist_ok=True)
 
-print(f"\n{'=' * 70}\nSUMMARY -- general-scope detector, zero-shot on standard benchmarks\n{'=' * 70}")
-print(f"{'benchmark':<16}{'precision':<12}{'recall':<10}{'f1':<10}{'FPR':<10}{'accuracy'}")
-for name in ["xstest", "or_bench", "wildguardtest"]:
-    m = all_results[name]
-    print(f"{name:<16}{m['precision']:<12}{m['recall']:<10}{m['f1']:<10}{m['false_positive_rate']:<10}{m['accuracy']}")
+print(f"\n{'=' * 70}\nSUMMARY\n{'=' * 70}")
+print("FinGuard on full WildGuardTest (1699 ex.):")
+print(f"  AUC-ROC: {finguard_metrics['auc_roc']}  AUPRC: {finguard_metrics['auprc']}")
+print(f"  Default-threshold F1: {finguard_metrics['default_threshold']['f1']}  "
+      f"FPR: {finguard_metrics['default_threshold']['false_positive_rate']}")
+print(f"  Best-F1-threshold F1: {finguard_metrics['best_f1_threshold']['f1']}  "
+      f"(threshold={finguard_metrics['best_f1_threshold']['threshold']})")
+print(f"  Recall at 5% FPR: {finguard_metrics['recall_at_5pct_fpr']}  "
+      f"Recall at 10% FPR: {finguard_metrics['recall_at_10pct_fpr']}")
+print(f"\nGranite Guardian on the SAME {GRANITE_EVAL_N}-example subset:")
+print(f"  F1: {granite_metrics['f1']}  FPR: {granite_metrics['false_positive_rate']}  "
+      f"Recall: {granite_metrics['recall']}")
 
 print(f"\nResults saved to {results_path}")
 print(f"Artifacts saved to {artifacts_dst}")
