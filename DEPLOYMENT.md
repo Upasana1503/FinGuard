@@ -20,28 +20,48 @@ the backend first — the frontend needs its URL.
    real DB password from step 1. Keep the finished string — you'll paste
    it into the backend's environment variables next.
 
-## 2. Backend — Render
+## 2. Backend — Hugging Face Spaces
 
-1. Push this repo to GitHub (already done if you're reading this from the
-   FinGuard repo).
-2. On render.com: New → Web Service → connect the repo.
-3. Root directory: `backend`
-4. Environment: **Docker** (it'll pick up `backend/Dockerfile` automatically).
-5. Environment variables: add `DATABASE_URL` = the Neon connection string
-   from step 1.
-6. Instance type: pick one with **at least 2GB RAM** — Qwen2.5-1.5B needs
-   real memory headroom; Render's free 512MB tier will OOM on model load.
-7. Deploy. First boot will be slow (~1-2 min: downloading model weights +
-   the 3-call warmup baked into startup) — that's expected, only happens
-   once per deploy, not per request.
-8. Once live, note the backend's public URL (e.g.
-   `https://finguard-api.onrender.com`) — the frontend needs it.
+Chosen over Render specifically for this project: free CPU Spaces give
+**16GB RAM**, vs Render's free tier (512MB) being unusable for this model
+at all — Render only works here on a paid tier. Spaces are free and
+actually big enough.
+
+One structural thing to know before starting: Spaces expect the
+`Dockerfile` (and the `README.md` with the frontmatter block below) at the
+**root** of the Space's own git repo. In the FinGuard repo they live at
+`backend/Dockerfile` and `backend/README.md` instead, nested inside the
+monorepo — so the Space gets its own small repo, and you push just the
+`backend/` folder's contents into it.
+
+1. On huggingface.co: **New → Space**. Pick a name (e.g. `finguard-api`),
+   SDK: **Docker**, visibility: your choice. This creates an empty git
+   repo at `https://huggingface.co/spaces/YOUR_USERNAME/finguard-api`.
+2. Clone the FinGuard repo locally if you haven't already, then push just
+   the `backend/` subfolder's contents into the new Space repo:
+   ```bash
+   cd /path/to/FinGuard
+   git subtree push --prefix=backend https://huggingface.co/spaces/YOUR_USERNAME/finguard-api main
+   ```
+   (First push may ask for HF credentials — use a Space-scoped access
+   token from huggingface.co/settings/tokens as the password.)
+3. In the Space's **Settings → Repository secrets**, add `DATABASE_URL` =
+   the Supabase connection string from step 1.
+4. The Space builds automatically after the push. First boot is slow
+   (~1-2 min: downloading model weights + the 3-call warmup baked into
+   startup) — that's expected, only happens once per deploy.
+5. Once live, your backend URL is
+   `https://YOUR_USERNAME-finguard-api.hf.space` — the frontend needs it.
 
 Sanity check once deployed:
 ```bash
-curl https://YOUR-BACKEND-URL.onrender.com/health
+curl https://YOUR_USERNAME-finguard-api.hf.space/health
 # -> {"status":"ok"}
 ```
+
+To redeploy after changing backend code later: repeat the `git subtree
+push` command from step 2 (or `git subtree push --prefix=backend ... main
+--force` if history diverges).
 
 ## 3. Frontend — Streamlit Community Cloud
 
@@ -49,7 +69,7 @@ curl https://YOUR-BACKEND-URL.onrender.com/health
 2. Main file path: `frontend/streamlit_app.py`
 3. In the app's "Secrets" settings, add:
    ```
-   FINGUARD_BACKEND_URL = "https://YOUR-BACKEND-URL.onrender.com"
+   FINGUARD_BACKEND_URL = "https://YOUR_USERNAME-finguard-api.hf.space"
    ```
 4. Deploy. That's the live site you share/link from your resume.
 
@@ -92,7 +112,7 @@ recall (72.9% vs 94.9%).
   from benign sessions yet. Shipping it here would mean shipping a feature
   that doesn't work — left out until it's actually validated.
 - **Rate limiting is in-memory, per-process** (`backend/app/rate_limit.py`).
-  Fine for a single Render instance; if this ever needs to scale to
+  Fine for a single Space instance; if this ever needs to scale to
   multiple instances, that needs to move to Redis or the database.
 - **Recall is 72.9%, not higher** — roughly 1 in 4 genuinely harmful
   prompts gets through. A real, spot-checked gap: self-harm content
