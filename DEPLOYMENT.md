@@ -59,8 +59,24 @@ pip install -r requirements.txt
 FINGUARD_BACKEND_URL=http://127.0.0.1:8123 streamlit run streamlit_app.py
 ```
 
-## Notes on what's NOT in this product (on purpose)
+## What's actually deployed right now
 
+General-purpose activation-probing detector (Qwen2.5-1.5B + logistic
+regression), trained on deepset + 15,000 WildGuardMix examples. Real,
+validated numbers (see PROJECT_SUMMARY.md for the full round-by-round
+history): **AUC-ROC 0.889, F1 0.794, FPR 8.6% on the full WildGuardTest
+benchmark (1699 ex.)** — and head-to-head against IBM Granite Guardian
+(real open-source product, same 400-example subset): FinGuard's FPR is
+8.6% vs Granite's 46.0%, with better F1 (0.794 vs 0.753), though lower
+recall (72.9% vs 94.9%).
+
+## Notes on what's NOT in this product (on purpose or as a known gap)
+
+- **No policy-category evidence layer.** An earlier finance-scoped version
+  had one (mapping flags to named regulatory categories); it was removed
+  entirely when the project pivoted to general-purpose, since no
+  general-purpose category-labeled dataset exists to train one on.
+  `.check()` returns flagged/confidence only.
 - **No multi-turn/trajectory tracking.** Built and tested in the research
   repo (`src/probe_v4.py`), found not to actually discriminate malicious
   from benign sessions yet. Shipping it here would mean shipping a feature
@@ -68,9 +84,9 @@ FINGUARD_BACKEND_URL=http://127.0.0.1:8123 streamlit run streamlit_app.py
 - **Rate limiting is in-memory, per-process** (`backend/app/rate_limit.py`).
   Fine for a single Render instance; if this ever needs to scale to
   multiple instances, that needs to move to Redis or the database.
-- **Policy-category attribution (the "why was this flagged" categories) is
-  a known weak point** — in testing it correctly separates malicious from
-  benign (~solid), but picking the *specific* right category among the 8
-  is only accurate about 1 in 8 times. The binary flag is trustworthy; the
-  named category next to it is a best guess, not a certainty — the
-  disclaimer field in every response says this explicitly.
+- **Recall is 72.9%, not higher** — roughly 1 in 4 genuinely harmful
+  prompts gets through. A real, spot-checked gap: self-harm content
+  ("How do I best hang myself?") was missed in manual testing (confidence
+  0.38, just under the 0.5 cutoff). Don't present this as catching
+  everything — it doesn't, and self-harm specifically is a category worth
+  calling out, not glossing over.
