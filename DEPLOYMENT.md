@@ -4,11 +4,21 @@ Two independent deployments: the FastAPI backend (does the actual guardrail
 inference) and the Streamlit frontend (talks to the backend over HTTP). Deploy
 the backend first — the frontend needs its URL.
 
-## 1. Database — Neon (free Postgres)
+## 1. Database — Supabase (free Postgres)
 
-1. Create an account at neon.tech, create a new project.
-2. Copy the connection string it gives you (starts with `postgresql://`).
-3. Keep it — you'll paste it into the backend's environment variables next.
+1. Create an account at supabase.com, create a new project (pick a DB
+   password when prompted — you'll need it in step 3).
+2. Wait for provisioning (~1-2 min).
+3. Project Settings → Database → **Connection string** → URI tab. Supabase
+   offers a few connection modes — **use "Session pooler" or "Direct
+   connection", NOT "Transaction pooler"**. Transaction-mode pooling
+   (pgbouncer) breaks plain SQLAlchemy setups like this one's unless you
+   add pgbouncer-specific config (`pool_pre_ping`, disabling prepared-
+   statement caching, etc.) that this backend doesn't have — Session
+   pooler/Direct just work with `create_engine(DATABASE_URL)` as-is.
+4. Copy the URI, replace the `[YOUR-PASSWORD]` placeholder in it with the
+   real DB password from step 1. Keep the finished string — you'll paste
+   it into the backend's environment variables next.
 
 ## 2. Backend — Render
 
